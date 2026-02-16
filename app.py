@@ -14,6 +14,7 @@ from werkzeug.security import generate_password_hash, check_password_hash
 from models import db, User, LoyaltyCard
 
 
+
 def seed_admin():
     """Create a default admin if none exists (dev convenience)."""
     if User.query.filter_by(role="admin").first():
@@ -338,6 +339,72 @@ def create_app():
         db.session.commit()
         flash(f"Stamp added to {user.username}.", "success")
         return redirect(url_for("staff_home"))
+    
+    @app.get("/staff/lookup")
+    @role_required("staff", "admin")
+    def staff_lookup():
+        token = (request.args.get("token") or "").strip()
+        if not token:
+            return jsonify({"ok": False, "error": "Missing token"}), 400
+
+        u = User.query.filter_by(qr_token=token).first()
+        if not u or not u.is_active:
+            return jsonify({"ok": False, "error": "User not found or inactive"}), 404
+
+        # Ensure card exists
+        if not u.loyalty_card:
+            db.session.add(LoyaltyCard(user_id=u.id))
+            db.session.commit()
+
+        card = u.loyalty_card
+        return jsonify({
+            "ok": True,
+            "user": {
+                "id": u.id,
+                "username": u.username,
+                "email": u.email,
+                "role": u.role,
+                "is_active": u.is_active,
+            },
+            "card": {
+                "stamps": card.stamp_count,
+                "reward_available": bool(card.reward_available),
+            }
+        })
+
+
+    @app.post("/staff/redeem-by-token")
+    @role_required("staff", "admin")
+    def staff_redeem_by_token():
+        require_csrf()
+        token = (request.form.get("token") or "").strip()
+
+        if not token:
+            flash("No token provided.", "danger")
+            return redirect(url_for("staff_home"))
+
+        u = User.query.filter_by(qr_token=token).first()
+        if not u or not u.is_active:
+            flash("User not found or inactive.", "danger")
+            return redirect(url_for("staff_home"))
+
+        if not u.loyalty_card:
+            db.session.add(LoyaltyCard(user_id=u.id))
+            db.session.commit()
+
+        card = u.loyalty_card
+        if not card.reward_available:
+            flash("No reward available to redeem yet.", "warning")
+            return redirect(url_for("staff_home"))
+
+        # Redeem (reset)
+        card.stamp_count = 0
+        card.reward_available = False
+        db.session.commit()
+
+        flash(f"Reward redeemed for {u.username}.", "success")
+        return redirect(url_for("staff_home"))
+
 
     # ---------------------------
     # Admin: user list + manage
