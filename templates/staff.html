@@ -1,82 +1,72 @@
 {% extends "base.html" %}
 {% block content %}
+
 <div class="row g-3">
 
   <!-- Scanner -->
   <div class="col-lg-6">
     <div class="card shadow-sm">
       <div class="card-body">
-        <h1 class="h5">Staff: QR Scanner</h1>
+        <h1 class="h5">Staff – {{ active_cafe.name }}</h1>
+
+        <div class="mb-2 text-muted" style="font-size:0.9rem;">
+          Reward: <strong>{{ settings.reward_name }}</strong>
+          ({{ settings.stamps_required }} stamps)
+        </div>
+
         <div id="reader" style="width:100%;"></div>
 
         <div class="mt-3">
           <label class="form-label">Scanned Token</label>
-          <input class="form-control" id="token" placeholder="Scan a QR code…" autocomplete="off">
+          <input class="form-control" id="token" placeholder="Scan QR code…">
         </div>
-
-        <p class="text-muted mt-2 mb-0" style="font-size:0.9rem;">
-          Tip: on mobile you may need HTTPS for camera permissions (localhost is ok).
-        </p>
       </div>
     </div>
   </div>
 
-  <!-- Prompt / Actions -->
+  <!-- Prompt Panel -->
   <div class="col-lg-6">
     <div class="card shadow-sm">
       <div class="card-body">
-        <h2 class="h6 mb-2">Customer Prompt</h2>
 
-        <div id="promptEmpty" class="text-muted" style="font-size:0.95rem;">
-          Scan a QR code to load customer details.
+        <h2 class="h6">Customer</h2>
+
+        <div id="emptyMsg" class="text-muted">
+          Scan a QR code to load details.
         </div>
 
         <div id="promptBox" style="display:none;">
+
           <div class="mb-2">
-            <div class="fw-semibold" id="pName">—</div>
-            <div class="text-muted" style="font-size:0.9rem;" id="pEmail">—</div>
+            <div class="fw-semibold" id="pName"></div>
+            <div class="text-muted" id="pEmail" style="font-size:0.9rem;"></div>
           </div>
 
           <div class="mb-3">
-            <span class="badge text-bg-secondary" id="pStamps">Stamps: —</span>
-            <span class="badge text-bg-success" id="pReward" style="display:none;">Reward Available</span>
+            <span class="badge text-bg-secondary" id="pStamps"></span>
+            <span class="badge text-bg-success" id="pReward" style="display:none;"></span>
           </div>
 
-          <div class="alert alert-info py-2" id="pActionText" style="margin-bottom: 12px;">
-            —
-          </div>
+          <div id="actionText" class="alert alert-info py-2"></div>
 
           <div class="d-flex gap-2">
-            <!-- Add stamp -->
-            <form method="post" action="/staff/add-stamp-by-token" class="m-0" id="addForm">
+
+            <form method="post" action="{{ url_for('staff_add_stamp_by_token') }}">
               <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
               <input type="hidden" name="token" id="addToken">
-              <button class="btn btn-success" type="submit" id="addBtn">Add Stamp</button>
+              <button class="btn btn-success" id="addBtn">Add Stamp</button>
             </form>
 
-            <!-- Redeem -->
-            <form method="post" action="/staff/redeem-by-token" class="m-0" id="redeemForm">
+            <form method="post" action="{{ url_for('staff_redeem_by_token') }}">
               <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
               <input type="hidden" name="token" id="redeemToken">
-              <button class="btn btn-warning" type="submit" id="redeemBtn">Redeem Reward</button>
+              <button class="btn btn-warning" id="redeemBtn">Redeem</button>
             </form>
+
           </div>
 
-          <div class="text-muted mt-2" style="font-size:0.9rem;">
-            Double-check the name before you confirm an action.
-          </div>
         </div>
 
-        <div id="promptError" class="alert alert-danger mt-3" style="display:none;"></div>
-      </div>
-    </div>
-
-    <!-- Live search stays optional; keep yours if you want -->
-    <div class="card shadow-sm mt-3">
-      <div class="card-body">
-        <h2 class="h6">Live User Search</h2>
-        <input class="form-control" id="liveSearch" placeholder="Type 2+ chars (starts-with)…">
-        <div id="searchResults" class="list-group mt-2"></div>
       </div>
     </div>
   </div>
@@ -85,168 +75,74 @@
 
 <script src="https://unpkg.com/html5-qrcode"></script>
 <script>
-  const tokenInput = document.getElementById("token");
+const tokenInput = document.getElementById("token");
+const emptyMsg = document.getElementById("emptyMsg");
+const promptBox = document.getElementById("promptBox");
 
-  function onScanSuccess(decodedText) {
-    tokenInput.value = decodedText;
-    lookupToken(decodedText);
-  }
+const pName = document.getElementById("pName");
+const pEmail = document.getElementById("pEmail");
+const pStamps = document.getElementById("pStamps");
+const pReward = document.getElementById("pReward");
+const actionText = document.getElementById("actionText");
 
-  const qr = new Html5Qrcode("reader");
-  Html5Qrcode.getCameras().then(cameras => {
-    if (cameras && cameras.length) {
-      qr.start(cameras[0].id, { fps: 10, qrbox: 220 }, onScanSuccess);
-    }
-  }).catch(err => console.error(err));
+const addBtn = document.getElementById("addBtn");
+const redeemBtn = document.getElementById("redeemBtn");
+const addToken = document.getElementById("addToken");
+const redeemToken = document.getElementById("redeemToken");
 
-  // Also lookup when staff pastes/edits token
-  let lookupTimer = null;
-  tokenInput.addEventListener("input", () => {
-    clearTimeout(lookupTimer);
-    lookupTimer = setTimeout(() => {
-      const t = tokenInput.value.trim();
-      if (t.length > 10) lookupToken(t); // tokens are long; avoids spam
-    }, 250);
-  });
-</script>
+function loadCustomer(token) {
+  fetch(`/staff/lookup?token=${encodeURIComponent(token)}`)
+    .then(r => r.json())
+    .then(data => {
 
-<script>
-  const promptEmpty = document.getElementById("promptEmpty");
-  const promptBox = document.getElementById("promptBox");
-  const promptError = document.getElementById("promptError");
-
-  const pName = document.getElementById("pName");
-  const pEmail = document.getElementById("pEmail");
-  const pStamps = document.getElementById("pStamps");
-  const pReward = document.getElementById("pReward");
-  const pActionText = document.getElementById("pActionText");
-
-  const addToken = document.getElementById("addToken");
-  const redeemToken = document.getElementById("redeemToken");
-  const addBtn = document.getElementById("addBtn");
-  const redeemBtn = document.getElementById("redeemBtn");
-
-  function showError(msg) {
-    promptError.style.display = "block";
-    promptError.textContent = msg;
-  }
-
-  function clearError() {
-    promptError.style.display = "none";
-    promptError.textContent = "";
-  }
-
-  async function lookupToken(token) {
-    clearError();
-
-    if (!token) return;
-
-    promptEmpty.style.display = "block";
-    promptBox.style.display = "none";
-
-    try {
-      const res = await fetch(`/staff/lookup?token=${encodeURIComponent(token)}`);
-      const data = await res.json();
-
-      if (!res.ok || !data.ok) {
-        showError(data.error || "Could not load customer.");
+      if (!data.ok) {
+        emptyMsg.textContent = data.error || "User not found";
+        promptBox.style.display = "none";
         return;
       }
+
+      emptyMsg.style.display = "none";
+      promptBox.style.display = "block";
 
       const u = data.user;
       const c = data.card;
 
-      promptEmpty.style.display = "none";
-      promptBox.style.display = "block";
-
       pName.textContent = u.username;
       pEmail.textContent = u.email;
-      pStamps.textContent = `Stamps: ${c.stamps}/9`;
+      pStamps.textContent = `Stamps: ${c.stamps}/${c.stamps_required}`;
 
       addToken.value = token;
       redeemToken.value = token;
 
       if (c.reward_available) {
         pReward.style.display = "inline-block";
-        pActionText.className = "alert alert-success py-2";
-        pActionText.innerHTML = `🎉 Reward ready for <strong>${u.username}</strong>. Redeem now?`;
+        pReward.textContent = `${c.reward_name} Ready`;
+        actionText.className = "alert alert-success py-2";
+        actionText.innerHTML = `🎉 Redeem <strong>${c.reward_name}</strong> for ${u.username}?`;
         redeemBtn.disabled = false;
-        addBtn.disabled = true;  // prevent stamping when reward already ready
+        addBtn.disabled = true;
       } else {
         pReward.style.display = "none";
-        pActionText.className = "alert alert-info py-2";
-        pActionText.innerHTML = `Add a stamp for <strong>${u.username}</strong>?`;
+        actionText.className = "alert alert-info py-2";
+        actionText.innerHTML = `Add a stamp for <strong>${u.username}</strong>?`;
         redeemBtn.disabled = true;
         addBtn.disabled = false;
       }
 
-    } catch (e) {
-      console.error(e);
-      showError("Network error while looking up customer.");
-    }
-  }
-</script>
-
-<script>
-  // (Optional) keep your live search – this version shows stamps + reward,
-  // and clicking a result loads the prompt panel.
-
-  const input = document.getElementById("liveSearch");
-  const resultsBox = document.getElementById("searchResults");
-  let timer = null;
-
-  function escapeHtml(str) {
-    return (str || "").replace(/[&<>"']/g, m => ({
-      "&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#039;"
-    }[m]));
-  }
-
-  async function runSearch(q) {
-    if (!q || q.length < 2) {
-      resultsBox.innerHTML = "";
-      return;
-    }
-
-    const res = await fetch(`/staff/search-json?q=${encodeURIComponent(q)}`);
-    const data = await res.json();
-
-    if (!data.length) {
-      resultsBox.innerHTML = `<div class="list-group-item">No matches</div>`;
-      return;
-    }
-
-    resultsBox.innerHTML = data.map(u => `
-      <button type="button" class="list-group-item list-group-item-action"
-        data-token="${escapeHtml(u.qr_token)}">
-        <div class="d-flex justify-content-between">
-          <div>
-            <strong>${escapeHtml(u.username)}</strong>
-            <div class="text-muted" style="font-size:0.9rem;">
-              ${escapeHtml(u.email)} • ${escapeHtml(u.role)}
-              ${u.reward_available ? ' • <span class="badge text-bg-success">Reward</span>' : ''}
-            </div>
-          </div>
-          <div class="text-muted" style="font-size:0.9rem;">
-            ${u.stamps}/9
-          </div>
-        </div>
-      </button>
-    `).join("");
-
-    // attach click handlers
-    [...resultsBox.querySelectorAll("button[data-token]")].forEach(btn => {
-      btn.addEventListener("click", () => {
-        const t = btn.getAttribute("data-token");
-        document.getElementById("token").value = t;
-        lookupToken(t);
-      });
     });
-  }
+}
 
-  input.addEventListener("input", () => {
-    const q = input.value.trim();
-    clearTimeout(timer);
-    timer = setTimeout(() => runSearch(q), 180);
-  });
+function onScanSuccess(decodedText) {
+  tokenInput.value = decodedText;
+  loadCustomer(decodedText);
+}
+
+const qr = new Html5Qrcode("reader");
+Html5Qrcode.getCameras().then(cameras => {
+  if (cameras.length) {
+    qr.start(cameras[0].id, { fps: 10, qrbox: 220 }, onScanSuccess);
+  }
+});
 </script>
+
 {% endblock %}

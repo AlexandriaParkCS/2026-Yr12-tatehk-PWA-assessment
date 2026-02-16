@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+{% block content %}
+
+<div class="row justify-content-center">
+  <div class="col-lg-8">
+
+    <div class="card shadow-sm">
+      <div class="card-body">
+        <h1 class="h4 mb-3">Create New Cafe</h1>
+
+        <form method="post" action="{{ url_for('admin_create_cafe_post') }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+
+          <!-- Cafe Details -->
+          <h2 class="h6 mb-2">Cafe Details</h2>
+
+          <div class="mb-3">
+            <label class="form-label">Cafe Name</label>
+            <input class="form-control" name="cafe_name" placeholder="Bean Bros Coffee" required>
+          </div>
+
+          <div class="mb-4">
+            <label class="form-label">Slug (URL)</label>
+            <input class="form-control" name="slug" placeholder="bean-bros">
+            <div class="form-text">
+              Leave blank to auto-generate from name.
+            </div>
+          </div>
+
+          <hr>
+
+          <!-- Manager Section -->
+          <h2 class="h6 mb-2">Assign Manager (Optional)</h2>
+
+          <div class="mb-3">
+            <label class="form-label">Manager Email</label>
+            <input type="email" class="form-control" name="manager_email"
+                   placeholder="manager@email.com">
+            <div class="form-text">
+              If email exists, user will be assigned. Otherwise a new account will be created.
+            </div>
+          </div>
+
+          <div class="mb-3">
+            <label class="form-label">Manager Username (for new account)</label>
+            <input class="form-control" name="manager_username"
+                   placeholder="managerusername">
+          </div>
+
+          <div class="mb-4">
+            <label class="form-label">Manager Password (for new account)</label>
+            <input type="password" class="form-control" name="manager_password"
+                   placeholder="Minimum 8 characters">
+          </div>
+
+          <button class="btn btn-success w-100" type="submit">
+            Create Cafe
+          </button>
+
+        </form>
+
+      </div>
+    </div>
+
+  </div>
+</div>
+
+{% endblock %}

@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="row justify-content-center">
+  <div class="col-lg-7">
+
+    <div class="card shadow-sm">
+      <div class="card-body">
+        <h1 class="h4 mb-2">Select a Cafe</h1>
+
+        {% if me_is_admin %}
+          <p class="text-muted mb-3">
+            You are logged in as a global admin. You can access any cafe.
+          </p>
+        {% else %}
+          <p class="text-muted mb-3">
+            Choose a cafe you’re assigned to.
+          </p>
+        {% endif %}
+
+        {% if cafes|length == 0 %}
+          <div class="alert alert-warning mb-0">
+            No cafes available for your account yet.
+          </div>
+        {% else %}
+          <form method="post" action="{{ url_for('select_cafe_post') }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+
+            <div class="mb-3">
+              <label class="form-label">Cafe</label>
+              <select class="form-select" name="cafe_id" required>
+                <option value="" selected disabled>Choose…</option>
+                {% for c in cafes %}
+                  <option value="{{ c.id }}">
+                    {{ c.name }} (/{{ c.slug }})
+                  </option>
+                {% endfor %}
+              </select>
+            </div>
+
+            <button class="btn btn-primary w-100" type="submit">Continue</button>
+          </form>
+        {% endif %}
+
+        {% if me_is_admin %}
+          <hr class="my-4">
+          <a class="btn btn-outline-warning w-100" href="{{ url_for('admin_create_cafe') }}">
+            Create a New Cafe (Admin)
+          </a>
+        {% endif %}
+
+      </div>
+    </div>
+
+  </div>
+</div>
+{% endblock %}
