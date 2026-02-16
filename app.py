@@ -15,6 +15,9 @@ from werkzeug.security import generate_password_hash, check_password_hash
 from models import db, User, Cafe, CafeMember, CafeSettings, LoyaltyCard
 
 
+# ---------------------------
+# Utilities
+# ---------------------------
 def slugify(name: str) -> str:
     s = (name or "").strip().lower()
     s = re.sub(r"[^a-z0-9]+", "-", s).strip("-")
@@ -40,6 +43,9 @@ def ensure_loyalty_card(user: User, cafe: Cafe) -> LoyaltyCard:
     return card
 
 
+# ---------------------------
+# App factory
+# ---------------------------
 def create_app():
     app = Flask(__name__)
 
@@ -51,7 +57,7 @@ def create_app():
     app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
     app.config["SESSION_COOKIE_HTTPONLY"] = True
     app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
-    # app.config["SESSION_COOKIE_SECURE"] = True  # enable on HTTPS
+    # app.config["SESSION_COOKIE_SECURE"] = True  # enable if HTTPS
 
     db.init_app(app)
 
@@ -83,7 +89,11 @@ def create_app():
     def get_membership(u: User, cafe: Cafe):
         if not u or not cafe:
             return None
-        return CafeMember.query.filter_by(user_id=u.id, cafe_id=cafe.id, is_active=True).first()
+        return CafeMember.query.filter_by(
+            user_id=u.id,
+            cafe_id=cafe.id,
+            is_active=True
+        ).first()
 
     def require_login(fn):
         @wraps(fn)
@@ -100,7 +110,7 @@ def create_app():
         @wraps(fn)
         def wrapper(*args, **kwargs):
             if not current_cafe():
-                flash("No cafe selected. Pick a cafe to view a cafe card.", "warning")
+                flash("No cafe selected. Pick a cafe first.", "warning")
                 return redirect(url_for("select_cafe"))
             return fn(*args, **kwargs)
         return wrapper
@@ -141,7 +151,7 @@ def create_app():
         return decorator
 
     # ---------------------------
-    # CSRF helpers
+    # CSRF
     # ---------------------------
     def get_csrf_token():
         if "csrf_token" not in session:
@@ -176,7 +186,7 @@ def create_app():
         return redirect(request.referrer or url_for("login"))
 
     # ---------------------------
-    # Public routes
+    # Public
     # ---------------------------
     @app.get("/")
     def index():
@@ -215,7 +225,7 @@ def create_app():
             db.session.add(user)
             db.session.commit()
 
-            # ✅ Auto-login and go straight to QR
+            # Auto-login → go straight to QR
             session.clear()
             session["user_id"] = user.id
             session["csrf_token"] = secrets.token_urlsafe(32)
@@ -247,11 +257,11 @@ def create_app():
 
             flash("Login successful.", "success")
 
-            # ✅ Customers go to QR immediately
+            # Customers: show QR first
             if not is_global_admin(user):
                 return redirect(url_for("my_qr"))
 
-            # Admins go to cafe selection
+            # Admin: choose cafe
             return redirect(url_for("select_cafe"))
 
         return render_template("login.html")
@@ -269,7 +279,6 @@ def create_app():
     @app.get("/my-qr")
     @require_login
     def my_qr():
-        u = current_user()
         return render_template("my_qr.html")
 
     # ---------------------------
@@ -317,7 +326,7 @@ def create_app():
 
         session["cafe_id"] = cafe.id
 
-        # Redirect by role within cafe
+        # Redirect by role
         if is_global_admin(u):
             return redirect(url_for("staff_home"))
 
@@ -341,11 +350,9 @@ def create_app():
     def card():
         u = current_user()
         cafe = current_cafe()
-
         settings = ensure_cafe_settings(cafe)
-        card = ensure_loyalty_card(u, cafe)
-
-        return render_template("card.html", card=card, settings=settings)
+        card_obj = ensure_loyalty_card(u, cafe)
+        return render_template("card.html", card=card_obj, settings=settings)
 
     # ---------------------------
     # QR image
@@ -364,7 +371,7 @@ def create_app():
         return send_file(buf, mimetype="image/png")
 
     # ---------------------------
-    # Staff scanner + prompt (per cafe)
+    # Staff (per cafe)
     # ---------------------------
     @app.get("/staff")
     @require_login
@@ -390,14 +397,14 @@ def create_app():
             return jsonify({"ok": False, "error": "User not found"}), 404
 
         settings = ensure_cafe_settings(cafe)
-        card = ensure_loyalty_card(u, cafe)
+        card_obj = ensure_loyalty_card(u, cafe)
 
         return jsonify({
             "ok": True,
             "user": {"id": u.id, "username": u.username, "email": u.email},
             "card": {
-                "stamps": card.stamp_count,
-                "reward_available": bool(card.reward_available),
+                "stamps": card_obj.stamp_count,
+                "reward_available": bool(card_obj.reward_available),
                 "stamps_required": settings.stamps_required,
                 "reward_name": settings.reward_name,
             }
@@ -422,17 +429,17 @@ def create_app():
             return redirect(url_for("staff_home"))
 
         settings = ensure_cafe_settings(cafe)
-        card = ensure_loyalty_card(u, cafe)
+        card_obj = ensure_loyalty_card(u, cafe)
 
-        if card.reward_available:
+        if card_obj.reward_available:
             flash("Reward already available — redeem first.", "warning")
             return redirect(url_for("staff_home"))
 
-        if card.stamp_count < settings.stamps_required:
-            card.stamp_count += 1
-            if card.stamp_count >= settings.stamps_required:
-                card.stamp_count = settings.stamps_required
-                card.reward_available = True
+        if card_obj.stamp_count < settings.stamps_required:
+            card_obj.stamp_count += 1
+            if card_obj.stamp_count >= settings.stamps_required:
+                card_obj.stamp_count = settings.stamps_required
+                card_obj.reward_available = True
 
         db.session.commit()
         flash(f"Stamp added to {u.username}.", "success")
@@ -457,7 +464,7 @@ def create_app():
             return redirect(url_for("staff_home"))
 
         settings = ensure_cafe_settings(cafe)
-        card = ensure_loyalty_card(u, cafe)
+        card_obj = ensure_loyalty_card(u, cafe)
 
         me = current_user()
         membership = CafeMember.query.filter_by(user_id=me.id, cafe_id=cafe.id, is_active=True).first()
@@ -465,22 +472,176 @@ def create_app():
             flash("Staff are not allowed to redeem at this cafe.", "danger")
             return redirect(url_for("staff_home"))
 
-        if not card.reward_available:
+        if not card_obj.reward_available:
             flash("No reward available yet.", "warning")
             return redirect(url_for("staff_home"))
 
-        card.stamp_count = 0
-        card.reward_available = False
+        card_obj.stamp_count = 0
+        card_obj.reward_available = False
         db.session.commit()
 
         flash(f"Redeemed {settings.reward_name} for {u.username}.", "success")
         return redirect(url_for("staff_home"))
 
-    # ---------------------------
-    # Manager dashboard + settings + admin create cafe
-    # (unchanged from your previous version; keep your existing ones)
-    # ---------------------------
+    @app.get("/staff/search-json")
+    @require_login
+    @require_cafe_selected
+    @require_role_in_cafe("staff", "manager")
+    def staff_search_json():
+        cafe = current_cafe()
+        q = (request.args.get("q") or "").strip()
 
+        if len(q) < 2:
+            return jsonify([])
+
+        settings = ensure_cafe_settings(cafe)
+
+        users = (
+            User.query.filter(User.is_active == True)  # noqa: E712
+            .filter((User.username.ilike(f"{q}%")) | (User.email.ilike(f"{q}%")))
+            .order_by(User.username.asc())
+            .limit(10)
+            .all()
+        )
+
+        payload = []
+        for u in users:
+            card_obj = LoyaltyCard.query.filter_by(user_id=u.id, cafe_id=cafe.id).first()
+            stamps = card_obj.stamp_count if card_obj else 0
+            reward = bool(card_obj.reward_available) if card_obj else False
+
+            payload.append({
+                "username": u.username,
+                "email": u.email,
+                "stamps": stamps,
+                "reward_available": reward,
+                "stamps_required": settings.stamps_required,
+                "reward_name": settings.reward_name,
+                "qr_token": u.qr_token,
+            })
+
+        return jsonify(payload)
+
+    # ---------------------------
+    # Manager dashboard (THIS WAS MISSING)
+    # ---------------------------
+    @app.get("/manager")
+    @require_login
+    @require_cafe_selected
+    @require_role_in_cafe("manager")
+    def manager_dashboard():
+        cafe = current_cafe()
+        settings = ensure_cafe_settings(cafe)
+
+        cards = (
+            LoyaltyCard.query.filter_by(cafe_id=cafe.id)
+            .order_by(LoyaltyCard.updated_at.desc())
+            .limit(300)
+            .all()
+        )
+
+        rows = []
+        for c in cards:
+            u = db.session.get(User, c.user_id)
+            if not u:
+                continue
+            if u.is_global_admin:
+                continue  # managers can't see admins
+            rows.append((u, c))
+
+        return render_template("manager_dashboard.html", rows=rows, settings=settings)
+
+    @app.post("/manager/reset-loyalty")
+    @require_login
+    @require_cafe_selected
+    @require_role_in_cafe("manager")
+    def manager_reset_loyalty():
+        require_csrf()
+        cafe = current_cafe()
+
+        user_id = request.form.get("user_id")
+        if not user_id or not user_id.isdigit():
+            flash("Invalid user.", "danger")
+            return redirect(url_for("manager_dashboard"))
+
+        u = db.session.get(User, int(user_id))
+        if not u or u.is_global_admin:
+            flash("User not found.", "danger")
+            return redirect(url_for("manager_dashboard"))
+
+        card_obj = LoyaltyCard.query.filter_by(user_id=u.id, cafe_id=cafe.id).first()
+        if not card_obj:
+            flash("No loyalty card for this user at this cafe.", "warning")
+            return redirect(url_for("manager_dashboard"))
+
+        card_obj.stamp_count = 0
+        card_obj.reward_available = False
+        db.session.commit()
+
+        flash(f"Reset loyalty for {u.username}.", "success")
+        return redirect(url_for("manager_dashboard"))
+
+    # ---------------------------
+    # Cafe settings (manager/admin)
+    # ---------------------------
+    @app.get("/settings")
+    @require_login
+    @require_cafe_selected
+    def cafe_settings():
+        u = current_user()
+        cafe = current_cafe()
+
+        if not is_global_admin(u):
+            m = get_membership(u, cafe)
+            if not m or m.role != "manager":
+                abort(403)
+
+        settings = ensure_cafe_settings(cafe)
+        return render_template("cafe_settings.html", settings=settings)
+
+    @app.post("/settings")
+    @require_login
+    @require_cafe_selected
+    def cafe_settings_post():
+        require_csrf()
+        u = current_user()
+        cafe = current_cafe()
+
+        if not is_global_admin(u):
+            m = get_membership(u, cafe)
+            if not m or m.role != "manager":
+                abort(403)
+
+        settings = ensure_cafe_settings(cafe)
+
+        stamps_required = (request.form.get("stamps_required") or "").strip()
+        reward_name = (request.form.get("reward_name") or "").strip()
+        staff_can_redeem = request.form.get("staff_can_redeem") == "on"
+
+        if not stamps_required.isdigit():
+            flash("Stamps required must be a number.", "danger")
+            return redirect(url_for("cafe_settings"))
+
+        stamps_required_i = int(stamps_required)
+        if stamps_required_i < 1 or stamps_required_i > 50:
+            flash("Stamps required must be between 1 and 50.", "danger")
+            return redirect(url_for("cafe_settings"))
+
+        if not reward_name:
+            flash("Reward name is required.", "danger")
+            return redirect(url_for("cafe_settings"))
+
+        settings.stamps_required = stamps_required_i
+        settings.reward_name = reward_name
+        settings.staff_can_redeem = staff_can_redeem
+        db.session.commit()
+
+        flash("Settings updated.", "success")
+        return redirect(url_for("cafe_settings"))
+
+    # ---------------------------
+    # Admin-only: create cafe
+    # ---------------------------
     @app.get("/admin/create-cafe")
     @require_login
     @require_global_admin
@@ -544,7 +705,12 @@ def create_app():
 
             existing = CafeMember.query.filter_by(user_id=manager_user.id, cafe_id=cafe.id).first()
             if not existing:
-                db.session.add(CafeMember(user_id=manager_user.id, cafe_id=cafe.id, role="manager", is_active=True))
+                db.session.add(CafeMember(
+                    user_id=manager_user.id,
+                    cafe_id=cafe.id,
+                    role="manager",
+                    is_active=True
+                ))
 
         db.session.commit()
 
@@ -554,6 +720,9 @@ def create_app():
     return app
 
 
+# ---------------------------
+# Seed global admin
+# ---------------------------
 def seed_global_admin():
     if User.query.filter_by(is_global_admin=True).first():
         return
