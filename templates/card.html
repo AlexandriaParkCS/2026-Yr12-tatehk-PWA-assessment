@@ -1,47 +1,47 @@
 {% extends "base.html" %}
 {% block content %}
-<div class="bg-white rounded shadow-sm p-4">
-  <h1 class="h4 mb-2">My Loyalty Card</h1>
 
-  <p class="mb-3">
-    Stamps: <strong>{{ card.stamp_count }}/9</strong>
-    {% if card.reward_available %}
-      <span class="badge text-bg-success ms-2">Reward Available</span>
-    {% else %}
-      <span class="badge text-bg-secondary ms-2">In Progress</span>
-    {% endif %}
-  </p>
+<div class="row justify-content-center">
+  <div class="col-lg-6">
 
-  <div class="d-flex flex-wrap gap-2 mb-4">
-    {% for i in range(1, 10) %}
-      {% if i <= card.stamp_count %}
-        <div class="rounded-circle border border-dark bg-dark" style="width:34px;height:34px;"></div>
-      {% else %}
-        <div class="rounded-circle border" style="width:34px;height:34px;"></div>
-      {% endif %}
-    {% endfor %}
+    <div class="card shadow-sm">
+      <div class="card-body text-center">
+
+        <h1 class="h4 mb-2">{{ active_cafe.name }}</h1>
+
+        <p class="text-muted">
+          Reward: <strong>{{ settings.reward_name }}</strong>
+          ({{ settings.stamps_required }} stamps required)
+        </p>
+
+        <div class="my-4">
+          <h2 class="h5">Stamps</h2>
+          <p class="display-6 mb-0">
+            {{ card.stamp_count }} / {{ settings.stamps_required }}
+          </p>
+
+          {% if card.reward_available %}
+            <div class="alert alert-success mt-3">
+              🎉 You have earned a {{ settings.reward_name }}!
+            </div>
+          {% endif %}
+        </div>
+
+        <hr>
+
+        <h2 class="h6 mb-3">Your QR Code</h2>
+        <img src="{{ url_for('qr_image', token=me.qr_token) }}"
+             alt="QR Code"
+             style="max-width:240px;">
+
+        <p class="text-muted mt-3" style="font-size:0.9rem;">
+          Show this to staff to receive a stamp.
+        </p>
+
+      </div>
+    </div>
+
   </div>
-
-  <div class="d-flex gap-2">
-    <form method="post" action="/card/add-stamp">
-      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-      <button class="btn btn-outline-primary" type="submit">Add Stamp (demo)</button>
-    </form>
-
-    <form method="post" action="/card/redeem">
-      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-      <button class="btn btn-success" type="submit" {% if not card.reward_available %}disabled{% endif %}>
-        Redeem Reward
-      </button>
-    </form>
-  </div>
-
-  <hr class="my-4">
-
-  <h2 class="h6 mb-2">My QR Code</h2>
-  <img src="/qr/{{ me.qr_token }}" alt="My QR Code" style="max-width: 240px;">
-  <p class="text-muted mt-2 mb-0" style="font-size: 0.9rem;">
-    Show this to staff to add a stamp.
-  </p>
 </div>
+
 {% endblock %}
