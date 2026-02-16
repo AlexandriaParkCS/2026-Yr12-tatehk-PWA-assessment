@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="card shadow-sm">
+  <div class="card-body">
+    <h1 class="h5 mb-3">Admin: Users</h1>
+
+    <form method="get" class="row g-2 align-items-end mb-3">
+      <div class="col-md-6">
+        <label class="form-label">Search (username/email)</label>
+        <input class="form-control" name="q" value="{{ q }}" placeholder="e.g. tate, @gmail.com">
+      </div>
+
+      <div class="col-md-3">
+        <label class="form-label">Role filter</label>
+        <select class="form-select" name="role">
+          <option value="" {% if not role %}selected{% endif %}>All</option>
+          <option value="customer" {% if role=="customer" %}selected{% endif %}>Customer</option>
+          <option value="staff" {% if role=="staff" %}selected{% endif %}>Staff</option>
+          <option value="admin" {% if role=="admin" %}selected{% endif %}>Admin</option>
+        </select>
+      </div>
+
+      <div class="col-md-3 d-flex gap-2">
+        <button class="btn btn-primary w-100" type="submit">Search</button>
+        <a class="btn btn-outline-secondary w-100" href="{{ url_for('admin_create_user') }}">Create</a>
+      </div>
+    </form>
+
+    <div class="table-responsive">
+      <table class="table table-sm align-middle">
+        <thead>
+          <tr>
+            <th>User</th>
+            <th>Role</th>
+            <th>Status</th>
+            <th>Created</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for u in users %}
+          <tr>
+            <td>
+              <strong>{{ u.username }}</strong><br>
+              <span class="text-muted">{{ u.email }}</span>
+            </td>
+            <td>{{ u.role }}</td>
+            <td>
+              {% if u.is_active %}
+                <span class="badge text-bg-success">Active</span>
+              {% else %}
+                <span class="badge text-bg-secondary">Inactive</span>
+              {% endif %}
+            </td>
+            <td class="text-muted" style="font-size:0.9rem;">{{ u.created_at }}</td>
+            <td class="text-end">
+              <a class="btn btn-outline-primary btn-sm" href="{{ url_for('admin_user_view', user_id=u.id) }}">Manage</a>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    <p class="text-muted mb-0" style="font-size:0.9rem;">Showing up to 200 users.</p>
+  </div>
+</div>
+{% endblock %}

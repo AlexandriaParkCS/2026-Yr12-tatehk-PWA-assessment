@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="card shadow-sm">
+  <div class="card-body">
+    <h1 class="h5">Admin: Create User</h1>
+
+    <form method="post">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+
+      <div class="mb-2">
+        <label class="form-label">Username</label>
+        <input class="form-control" name="username" required>
+      </div>
+
+      <div class="mb-2">
+        <label class="form-label">Email</label>
+        <input class="form-control" name="email" type="email" required>
+      </div>
+
+      <div class="mb-2">
+        <label class="form-label">Password (8+ chars)</label>
+        <input class="form-control" name="password" type="password" required>
+      </div>
+
+      <div class="mb-3">
+        <label class="form-label">Role</label>
+        <select class="form-select" name="role">
+          <option value="customer">Customer</option>
+          <option value="staff">Staff</option>
+          <option value="admin">Admin</option>
+        </select>
+      </div>
+
+      <button class="btn btn-primary" type="submit">Create</button>
+    </form>
+  </div>
+</div>
+{% endblock %}

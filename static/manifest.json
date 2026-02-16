@@ -1,0 +1,9 @@
+{
+  "name": "Coffee Loyalty",
+  "short_name": "Loyalty",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#212529",
+  "icons": []
+}

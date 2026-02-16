@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="row g-3">
+  <div class="col-lg-6">
+    <div class="card shadow-sm">
+      <div class="card-body">
+        <h1 class="h5">Staff: QR Scanner</h1>
+        <div id="reader" style="width:100%;"></div>
+
+        <form class="mt-3" method="post" action="/staff/add-stamp-by-token">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <label class="form-label">Scanned Token</label>
+          <input class="form-control" id="token" name="token" placeholder="Scan a QR code…" required>
+          <button class="btn btn-success mt-2" type="submit">Add Stamp</button>
+        </form>
+
+        <p class="text-muted mt-2 mb-0" style="font-size:0.9rem;">
+          If camera doesn’t open: try on mobile, and ensure you’re using HTTPS (or localhost).
+        </p>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-lg-6">
+    <div class="card shadow-sm">
+      <div class="card-body">
+        <h2 class="h6">User Search</h2>
+        <form method="get" action="/staff/search" class="d-flex gap-2">
+          <input class="form-control" name="q" placeholder="Search username or email">
+          <button class="btn btn-outline-primary" type="submit">Search</button>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="https://unpkg.com/html5-qrcode"></script>
+<script>
+  const tokenInput = document.getElementById("token");
+
+  function onScanSuccess(decodedText) {
+    tokenInput.value = decodedText;
+  }
+
+  const qr = new Html5Qrcode("reader");
+  Html5Qrcode.getCameras().then(cameras => {
+    if (cameras && cameras.length) {
+      qr.start(
+        cameras[0].id,
+        { fps: 10, qrbox: 220 },
+        onScanSuccess
+      );
+    }
+  }).catch(err => {
+    console.error(err);
+  });
+</script>
+{% endblock %}

@@ -1,0 +1,77 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="row g-3">
+  <div class="col-lg-6">
+    <div class="card shadow-sm">
+      <div class="card-body">
+        <h1 class="h5 mb-2">Manage: {{ u.username }}</h1>
+        <div class="text-muted mb-3">{{ u.email }}</div>
+
+        <div class="mb-2">
+          Role: <strong>{{ u.role }}</strong>
+        </div>
+
+        <div class="mb-3">
+          Status:
+          {% if u.is_active %}
+            <span class="badge text-bg-success">Active</span>
+          {% else %}
+            <span class="badge text-bg-secondary">Inactive</span>
+          {% endif %}
+        </div>
+
+        <hr>
+
+        <h2 class="h6">Change Role</h2>
+        <form method="post" action="{{ url_for('admin_set_role', user_id=u.id) }}" class="d-flex gap-2 mb-3">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <select class="form-select" name="role">
+            <option value="customer" {% if u.role=="customer" %}selected{% endif %}>Customer</option>
+            <option value="staff" {% if u.role=="staff" %}selected{% endif %}>Staff</option>
+            <option value="admin" {% if u.role=="admin" %}selected{% endif %}>Admin</option>
+          </select>
+          <button class="btn btn-primary" type="submit">Save</button>
+        </form>
+
+        <h2 class="h6">Activate / Deactivate</h2>
+        <form method="post" action="{{ url_for('admin_toggle_active', user_id=u.id) }}" class="mb-3">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <button class="btn btn-outline-danger" type="submit">
+            {% if u.is_active %}Deactivate{% else %}Activate{% endif %}
+          </button>
+        </form>
+
+        <h2 class="h6">Reset Loyalty</h2>
+        <form method="post" action="{{ url_for('admin_reset_loyalty', user_id=u.id) }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <button class="btn btn-warning" type="submit">Reset stamps & reward</button>
+        </form>
+
+        <div class="mt-3">
+          <a href="{{ url_for('admin_users') }}">← Back to users</a>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-lg-6">
+    <div class="card shadow-sm">
+      <div class="card-body">
+        <h2 class="h6 mb-2">Loyalty Snapshot</h2>
+        <p class="mb-2">
+          Stamps: <strong>{{ card.stamp_count }}/9</strong>
+          {% if card.reward_available %}
+            <span class="badge text-bg-success ms-2">Reward Available</span>
+          {% endif %}
+        </p>
+
+        <h2 class="h6 mt-4 mb-2">QR Token</h2>
+        <img src="/qr/{{ u.qr_token }}" alt="QR" style="max-width:240px;">
+        <p class="text-muted mt-2 mb-0" style="font-size:0.9rem;">
+          Admin can view any user’s QR.
+        </p>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

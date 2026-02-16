@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="p-4 bg-white rounded shadow-sm">
+  <h1 class="h3">Online Coffee Loyalty Card</h1>
+  <p class="mb-0">Log in to track your stamps, show your QR code to staff, and redeem rewards.</p>
+</div>
+
+{% if me and me.role == "admin" %}
+  <div class="mt-3 alert alert-warning">
+    Default admin login: <strong>admin</strong> / <strong>admin@local</strong> with password <strong>ChangeMe123!</strong>.
+    Change it after first login.
+  </div>
+{% endif %}
+{% endblock %}
