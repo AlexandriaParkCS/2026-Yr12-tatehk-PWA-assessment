@@ -14,13 +14,6 @@
           ({{ settings.stamps_required }} stamps)
         </div>
 
-        <div class="d-flex gap-2 mb-2">
-          <button class="btn btn-outline-secondary btn-sm" id="flipBtn" type="button" disabled>
-            Flip Camera
-          </button>
-          <span class="text-muted" style="font-size:0.9rem;" id="camHint"></span>
-        </div>
-
         <div id="reader" style="width:100%;"></div>
 
         <div class="mt-3">
@@ -97,16 +90,12 @@ const redeemBtn = document.getElementById("redeemBtn");
 const addToken = document.getElementById("addToken");
 const redeemToken = document.getElementById("redeemToken");
 
-const flipBtn = document.getElementById("flipBtn");
-const camHint = document.getElementById("camHint");
-
 function loadCustomer(token) {
   fetch(`/staff/lookup?token=${encodeURIComponent(token)}`)
     .then(r => r.json())
     .then(data => {
 
       if (!data.ok) {
-        emptyMsg.style.display = "block";
         emptyMsg.textContent = data.error || "User not found";
         promptBox.style.display = "none";
         return;
@@ -139,11 +128,7 @@ function loadCustomer(token) {
         redeemBtn.disabled = true;
         addBtn.disabled = false;
       }
-    })
-    .catch(() => {
-      emptyMsg.style.display = "block";
-      emptyMsg.textContent = "Could not load customer details.";
-      promptBox.style.display = "none";
+
     });
 }
 
@@ -152,67 +137,12 @@ function onScanSuccess(decodedText) {
   loadCustomer(decodedText);
 }
 
-// ---- Camera handling (rear by default + flip) ----
 const qr = new Html5Qrcode("reader");
-
-let usingFacingMode = "environment"; // default to rear camera
-let started = false;
-
-async function startWithFacingMode(mode) {
-  usingFacingMode = mode;
-  camHint.textContent = (mode === "environment") ? "Using rear camera" : "Using front camera";
-
-  // Stop if already started
-  if (started) {
-    try { await qr.stop(); } catch (e) {}
-    started = false;
+Html5Qrcode.getCameras().then(cameras => {
+  if (cameras.length) {
+    qr.start(cameras[0].id, { fps: 10, qrbox: 220 }, onScanSuccess);
   }
-
-  // Prefer "environment" (rear) on iPhone/iPad
-  const config = { fps: 10, qrbox: 220 };
-
-  try {
-    await qr.start(
-      { facingMode: { ideal: mode } }, // ✅ key part
-      config,
-      onScanSuccess
-    );
-    started = true;
-    flipBtn.disabled = false;
-    return;
-  } catch (err) {
-    // Fallback: choose a camera from the list if constraints fail
-    try {
-      const cameras = await Html5Qrcode.getCameras();
-      if (!cameras || !cameras.length) throw err;
-
-      // Try to pick a "back/rear" labelled camera if possible
-      const labelMatch = (mode === "environment")
-        ? /(back|rear|environment)/i
-        : /(front|user)/i;
-
-      let chosen = cameras.find(c => labelMatch.test(c.label || ""));
-      if (!chosen) chosen = cameras[0];
-
-      await qr.start(chosen.id, config, onScanSuccess);
-      started = true;
-      flipBtn.disabled = cameras.length < 2;
-      camHint.textContent = chosen.label ? `Using: ${chosen.label}` : camHint.textContent;
-    } catch (e2) {
-      camHint.textContent = "Camera start failed (check permissions).";
-      flipBtn.disabled = true;
-      console.error("Camera start error:", err, e2);
-    }
-  }
-}
-
-flipBtn.addEventListener("click", async () => {
-  const next = (usingFacingMode === "environment") ? "user" : "environment";
-  await startWithFacingMode(next);
 });
-
-// Start on page load using rear camera
-startWithFacingMode("environment");
 </script>
 
 {% endblock %}
