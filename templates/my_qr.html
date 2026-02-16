@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% block content %}
+
+<div class="row justify-content-center">
+  <div class="col-lg-6">
+
+    <div class="card shadow-sm">
+      <div class="card-body text-center">
+
+        <h1 class="h4 mb-2">Your QR Code</h1>
+        <p class="text-muted mb-4">
+          Show this QR code at any participating cafe to earn stamps.
+        </p>
+
+        <img
+          src="{{ url_for('qr_image', token=me.qr_token) }}"
+          alt="Your QR Code"
+          style="max-width:260px;"
+          class="mb-3"
+        >
+
+        <div class="text-muted" style="font-size:0.9rem;">
+          Logged in as <strong>{{ me.username }}</strong>
+        </div>
+
+        <hr class="my-4">
+
+        <div class="d-grid gap-2">
+          <a class="btn btn-primary" href="{{ url_for('select_cafe') }}">
+            Select a Cafe (Optional)
+          </a>
+
+          {% if active_cafe %}
+            <a class="btn btn-outline-secondary" href="{{ url_for('card') }}">
+              View My Card for {{ active_cafe.name }}
+            </a>
+          {% endif %}
+        </div>
+
+        <p class="text-muted mt-3 mb-0" style="font-size:0.9rem;">
+          If you pick a cafe, you’ll be able to see your stamps for that specific cafe.
+        </p>
+
+      </div>
+    </div>
+
+  </div>
+</div>
+
+{% endblock %}
