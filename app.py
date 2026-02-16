@@ -604,6 +604,48 @@ def create_app():
 
         flash(f"Reset loyalty for {u.username}.", "success")
         return redirect(url_for("manager_dashboard"))
+    from werkzeug.security import generate_password_hash
+
+    @app.post("/manager/staff/set-password")
+    @require_login
+    @require_cafe_selected
+    @require_role_in_cafe("manager")
+    def manager_staff_set_password():
+        require_csrf()
+        cafe = current_cafe()
+
+        member_id = request.form.get("member_id", "")
+        new_password = request.form.get("new_password") or ""
+
+        if not member_id.isdigit():
+            flash("Invalid member.", "danger")
+            return redirect(url_for("manager_staff"))
+
+        if len(new_password) < 8:
+            flash("Password must be at least 8 characters.", "danger")
+            return redirect(url_for("manager_staff"))
+
+        mem = db.session.get(CafeMember, int(member_id))
+        if not mem or mem.cafe_id != cafe.id or not mem.is_active:
+            flash("Member not found.", "danger")
+            return redirect(url_for("manager_staff"))
+
+        target_user = db.session.get(User, mem.user_id)
+        if not target_user or target_user.is_global_admin:
+            flash("Cannot change this user.", "danger")
+            return redirect(url_for("manager_staff"))
+
+        # Optional safety: stop managers changing OTHER managers
+        if mem.role == "manager":
+            flash("You can’t change another manager’s password.", "danger")
+            return redirect(url_for("manager_staff"))
+
+        target_user.password_hash = generate_password_hash(new_password)
+        db.session.commit()
+
+        flash(f"Password updated for {target_user.username}.", "success")
+        return redirect(url_for("manager_staff"))
+
 
     # ---------------------------
     # Manager: Staff/Users tab (add staff to this cafe)

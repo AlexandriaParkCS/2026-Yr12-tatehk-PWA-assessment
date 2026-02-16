@@ -58,7 +58,7 @@
                   <th>User</th>
                   <th>Role</th>
                   <th>Active</th>
-                  <th></th>
+                  <th style="width: 420px;"></th>
                 </tr>
               </thead>
               <tbody>
@@ -84,30 +84,54 @@
 
                     <td class="text-end">
 
-                      <!-- Change role -->
-                      <form method="post" action="{{ url_for('manager_staff_update') }}" class="d-inline">
-                        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-                        <input type="hidden" name="action" value="set_role">
-                        <input type="hidden" name="member_id" value="{{ m.id }}">
-                        <select name="role" class="form-select form-select-sm d-inline w-auto">
-                          <option value="staff" {% if m.role=='staff' %}selected{% endif %}>Staff</option>
-                          <option value="manager" {% if m.role=='manager' %}selected{% endif %}>Manager</option>
-                        </select>
-                        <button class="btn btn-sm btn-outline-primary">
-                          Save
-                        </button>
-                      </form>
+                      <div class="d-flex flex-wrap gap-2 justify-content-end">
 
-                      <!-- Remove -->
-                      <form method="post" action="{{ url_for('manager_staff_update') }}" class="d-inline">
-                        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-                        <input type="hidden" name="action" value="deactivate">
-                        <input type="hidden" name="member_id" value="{{ m.id }}">
-                        <button class="btn btn-sm btn-outline-danger"
-                                onclick="return confirm('Remove {{ u.username }} from this cafe?');">
-                          Remove
-                        </button>
-                      </form>
+                        <!-- Change role -->
+                        <form method="post" action="{{ url_for('manager_staff_update') }}" class="d-inline">
+                          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                          <input type="hidden" name="action" value="set_role">
+                          <input type="hidden" name="member_id" value="{{ m.id }}">
+                          <div class="input-group input-group-sm">
+                            <select name="role" class="form-select">
+                              <option value="staff" {% if m.role=='staff' %}selected{% endif %}>Staff</option>
+                              <option value="manager" {% if m.role=='manager' %}selected{% endif %}>Manager</option>
+                            </select>
+                            <button class="btn btn-outline-primary">
+                              Save
+                            </button>
+                          </div>
+                        </form>
+
+                        <!-- Change password -->
+                        <form method="post" action="{{ url_for('manager_staff_set_password') }}" class="d-inline">
+                          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                          <input type="hidden" name="member_id" value="{{ m.id }}">
+                          <div class="input-group input-group-sm">
+                            <input type="password"
+                                   name="new_password"
+                                   class="form-control"
+                                   minlength="8"
+                                   placeholder="New password (8+)"
+                                   required>
+                            <button class="btn btn-outline-warning"
+                                    onclick="return confirm('Change password for {{ u.username }}?');">
+                              Set
+                            </button>
+                          </div>
+                        </form>
+
+                        <!-- Remove -->
+                        <form method="post" action="{{ url_for('manager_staff_update') }}" class="d-inline">
+                          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                          <input type="hidden" name="action" value="deactivate">
+                          <input type="hidden" name="member_id" value="{{ m.id }}">
+                          <button class="btn btn-sm btn-outline-danger"
+                                  onclick="return confirm('Remove {{ u.username }} from this cafe?');">
+                            Remove
+                          </button>
+                        </form>
+
+                      </div>
 
                     </td>
                   </tr>
