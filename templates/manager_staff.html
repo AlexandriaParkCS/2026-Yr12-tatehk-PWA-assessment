@@ -1,0 +1,131 @@
+{% extends "base.html" %}
+{% block content %}
+
+<h1 class="h4 mb-2">Staff & Managers</h1>
+<p class="text-muted mb-4">
+  Cafe: <strong>{{ active_cafe.name }}</strong>
+</p>
+
+<div class="row g-4">
+
+  <!-- Add staff -->
+  <div class="col-lg-5">
+    <div class="card shadow-sm">
+      <div class="card-body">
+
+        <h2 class="h6">Add Staff / Manager</h2>
+        <p class="text-muted" style="font-size:0.95rem;">
+          Enter a username or email of an existing user.
+        </p>
+
+        <form method="post" action="{{ url_for('manager_staff_add') }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+
+          <div class="mb-3">
+            <label class="form-label">Username or Email</label>
+            <input class="form-control" name="identifier" placeholder="e.g. sam or sam@email.com" required>
+          </div>
+
+          <div class="mb-3">
+            <label class="form-label">Role</label>
+            <select class="form-select" name="role">
+              <option value="staff" selected>Staff</option>
+              <option value="manager">Manager</option>
+            </select>
+          </div>
+
+          <button class="btn btn-primary w-100" type="submit">
+            Add / Update
+          </button>
+        </form>
+
+      </div>
+    </div>
+  </div>
+
+  <!-- Current members -->
+  <div class="col-lg-7">
+    <div class="card shadow-sm">
+      <div class="card-body">
+
+        <h2 class="h6">Current Members</h2>
+
+        {% if rows and rows|length > 0 %}
+          <div class="table-responsive">
+            <table class="table table-sm align-middle">
+              <thead>
+                <tr>
+                  <th>User</th>
+                  <th>Role</th>
+                  <th>Active</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody>
+
+                {% for u, m in rows %}
+                  <tr>
+                    <td>
+                      <strong>{{ u.username }}</strong><br>
+                      <span class="text-muted">{{ u.email }}</span>
+                    </td>
+
+                    <td>
+                      <span class="badge bg-info text-dark">{{ m.role }}</span>
+                    </td>
+
+                    <td>
+                      {% if m.is_active %}
+                        <span class="badge bg-success">Yes</span>
+                      {% else %}
+                        <span class="badge bg-secondary">No</span>
+                      {% endif %}
+                    </td>
+
+                    <td class="text-end">
+
+                      <!-- Change role -->
+                      <form method="post" action="{{ url_for('manager_staff_update') }}" class="d-inline">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                        <input type="hidden" name="action" value="set_role">
+                        <input type="hidden" name="member_id" value="{{ m.id }}">
+                        <select name="role" class="form-select form-select-sm d-inline w-auto">
+                          <option value="staff" {% if m.role=='staff' %}selected{% endif %}>Staff</option>
+                          <option value="manager" {% if m.role=='manager' %}selected{% endif %}>Manager</option>
+                        </select>
+                        <button class="btn btn-sm btn-outline-primary">
+                          Save
+                        </button>
+                      </form>
+
+                      <!-- Remove -->
+                      <form method="post" action="{{ url_for('manager_staff_update') }}" class="d-inline">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                        <input type="hidden" name="action" value="deactivate">
+                        <input type="hidden" name="member_id" value="{{ m.id }}">
+                        <button class="btn btn-sm btn-outline-danger"
+                                onclick="return confirm('Remove {{ u.username }} from this cafe?');">
+                          Remove
+                        </button>
+                      </form>
+
+                    </td>
+                  </tr>
+                {% endfor %}
+
+              </tbody>
+            </table>
+          </div>
+        {% else %}
+          <div class="alert alert-info mb-0">
+            No staff/managers have been added yet.
+          </div>
+        {% endif %}
+
+      </div>
+    </div>
+  </div>
+
+</div>
+
+{% endblock %}

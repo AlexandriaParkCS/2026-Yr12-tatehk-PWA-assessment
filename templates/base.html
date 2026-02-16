@@ -16,7 +16,7 @@
       Coffee Loyalty
     </a>
 
-    <div class="ms-auto d-flex gap-2 align-items-center">
+    <div class="ms-auto d-flex gap-2 align-items-center flex-wrap">
 
       {% if me %}
 
@@ -26,7 +26,13 @@
           </span>
         {% endif %}
 
-        <!-- Customer -->
+        <!-- My QR (always available when logged in) -->
+        <a class="btn btn-outline-light btn-sm"
+           href="{{ url_for('my_qr') }}">
+          My QR
+        </a>
+
+        <!-- Customer: My Card (only if cafe selected and not staff/manager/admin) -->
         {% if active_cafe and not me_is_admin and not me_membership %}
           <a class="btn btn-outline-light btn-sm"
              href="{{ url_for('card') }}">
@@ -49,6 +55,12 @@
             Manager
           </a>
 
+          <!-- Manager: Staff tab -->
+          <a class="btn btn-outline-primary btn-sm"
+             href="{{ url_for('manager_staff') }}">
+            Staff Users
+          </a>
+
           <a class="btn btn-outline-secondary btn-sm"
              href="{{ url_for('cafe_settings') }}">
             Settings
@@ -65,7 +77,12 @@
         {% if me_is_admin %}
           <a class="btn btn-outline-warning btn-sm"
              href="{{ url_for('admin_create_cafe') }}">
-            Admin
+            Admin Cafes
+          </a>
+
+          <a class="btn btn-outline-warning btn-sm"
+             href="{{ url_for('admin_users') }}">
+            Users
           </a>
         {% endif %}
 

@@ -1,0 +1,207 @@
+{% extends "base.html" %}
+{% block content %}
+
+<h1 class="h4 mb-3">Manage User: {{ target.username }}</h1>
+
+<div class="row g-4">
+
+  <!-- Basic info / controls -->
+  <div class="col-lg-4">
+
+    <div class="card shadow-sm">
+      <div class="card-body">
+
+        <p><strong>Email:</strong> {{ target.email }}</p>
+        <p>
+          <strong>Status:</strong>
+          {% if target.is_active %}
+            <span class="badge bg-success">Active</span>
+          {% else %}
+            <span class="badge bg-danger">Inactive</span>
+          {% endif %}
+        </p>
+
+        <hr>
+
+        <!-- Toggle active -->
+        <form method="post"
+              action="{{ url_for('admin_user_update', user_id=target.id) }}"
+              class="mb-2">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <input type="hidden" name="action" value="toggle_active">
+          <button class="btn btn-sm btn-warning w-100">
+            {% if target.is_active %}Deactivate{% else %}Activate{% endif %}
+          </button>
+        </form>
+
+        <!-- Toggle global admin -->
+        <form method="post"
+              action="{{ url_for('admin_user_update', user_id=target.id) }}"
+              class="mb-2">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <input type="hidden" name="action" value="set_global_admin">
+          <input type="hidden" name="value"
+                 value="{{ 'false' if target.is_global_admin else 'true' }}">
+          <button class="btn btn-sm btn-dark w-100">
+            {% if target.is_global_admin %}
+              Remove Global Admin
+            {% else %}
+              Make Global Admin
+            {% endif %}
+          </button>
+        </form>
+
+        <hr>
+
+        <!-- Reset password -->
+        <form method="post"
+              action="{{ url_for('admin_user_update', user_id=target.id) }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <input type="hidden" name="action" value="reset_password">
+
+          <label class="form-label">Reset Password</label>
+          <input type="password" name="password" class="form-control mb-2"
+                 placeholder="New password (8+ chars)" required>
+          <button class="btn btn-sm btn-outline-primary w-100">
+            Update Password
+          </button>
+        </form>
+
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Memberships -->
+  <div class="col-lg-8">
+
+    <div class="card shadow-sm mb-3">
+      <div class="card-body">
+
+        <h2 class="h6">Cafe Memberships</h2>
+
+        {% if memberships %}
+          <table class="table table-sm">
+            <thead>
+              <tr>
+                <th>Cafe</th>
+                <th>Role</th>
+                <th>Active</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+
+              {% for m in memberships %}
+                <tr>
+                  <td>{{ cafe_map[m.cafe_id].name if cafe_map.get(m.cafe_id) }}</td>
+                  <td>{{ m.role }}</td>
+                  <td>
+                    {% if m.is_active %}
+                      <span class="badge bg-success">Yes</span>
+                    {% else %}
+                      <span class="badge bg-secondary">No</span>
+                    {% endif %}
+                  </td>
+                  <td class="text-end">
+
+                    <!-- Change role -->
+                    <form method="post"
+                          action="{{ url_for('admin_user_membership', user_id=target.id) }}"
+                          class="d-inline">
+                      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                      <input type="hidden" name="action" value="add_or_update">
+                      <input type="hidden" name="cafe_id" value="{{ m.cafe_id }}">
+                      <input type="hidden" name="is_active"
+                             value="{{ 'on' if m.is_active else '' }}">
+                      <select name="role" class="form-select form-select-sm d-inline w-auto">
+                        <option value="staff" {% if m.role=='staff' %}selected{% endif %}>Staff</option>
+                        <option value="manager" {% if m.role=='manager' %}selected{% endif %}>Manager</option>
+                      </select>
+                      <button class="btn btn-sm btn-outline-primary">Update</button>
+                    </form>
+
+                    <!-- Remove -->
+                    <form method="post"
+                          action="{{ url_for('admin_user_membership', user_id=target.id) }}"
+                          class="d-inline">
+                      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                      <input type="hidden" name="action" value="remove">
+                      <input type="hidden" name="member_id" value="{{ m.id }}">
+                      <button class="btn btn-sm btn-outline-danger">
+                        Remove
+                      </button>
+                    </form>
+
+                  </td>
+                </tr>
+              {% endfor %}
+
+            </tbody>
+          </table>
+        {% else %}
+          <p class="text-muted">No cafe memberships.</p>
+        {% endif %}
+
+      </div>
+    </div>
+
+    <!-- Add membership -->
+    <div class="card shadow-sm">
+      <div class="card-body">
+
+        <h2 class="h6">Add / Update Cafe Membership</h2>
+
+        <form method="post"
+              action="{{ url_for('admin_user_membership', user_id=target.id) }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <input type="hidden" name="action" value="add_or_update">
+
+          <div class="row g-2">
+
+            <div class="col-md-6">
+              <label class="form-label">Cafe</label>
+              <select name="cafe_id" class="form-select" required>
+                <option value="">-- Select cafe --</option>
+                {% for c in cafes %}
+                  <option value="{{ c.id }}">{{ c.name }}</option>
+                {% endfor %}
+              </select>
+            </div>
+
+            <div class="col-md-3">
+              <label class="form-label">Role</label>
+              <select name="role" class="form-select">
+                <option value="staff">Staff</option>
+                <option value="manager">Manager</option>
+              </select>
+            </div>
+
+            <div class="col-md-3 d-flex align-items-end">
+              <div class="form-check">
+                <input class="form-check-input"
+                       type="checkbox"
+                       name="is_active"
+                       checked>
+                <label class="form-check-label">
+                  Active
+                </label>
+              </div>
+            </div>
+
+          </div>
+
+          <button class="btn btn-primary btn-sm mt-3">
+            Save Membership
+          </button>
+
+        </form>
+
+      </div>
+    </div>
+
+  </div>
+
+</div>
+
+{% endblock %}

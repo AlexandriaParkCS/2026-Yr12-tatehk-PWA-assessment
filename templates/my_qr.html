@@ -2,14 +2,14 @@
 {% block content %}
 
 <div class="row justify-content-center">
-  <div class="col-lg-6">
+  <div class="col-lg-7">
 
-    <div class="card shadow-sm">
+    <div class="card shadow-sm mb-3">
       <div class="card-body text-center">
 
         <h1 class="h4 mb-2">Your QR Code</h1>
         <p class="text-muted mb-4">
-          Show this QR code at any participating cafe to earn stamps.
+          Show this QR at any participating cafe to earn stamps.
         </p>
 
         <img
@@ -19,27 +19,61 @@
           class="mb-3"
         >
 
-        <div class="text-muted" style="font-size:0.9rem;">
+        <div class="text-muted" style="font-size:0.95rem;">
           Logged in as <strong>{{ me.username }}</strong>
         </div>
+
+      </div>
+    </div>
+
+    <div class="card shadow-sm">
+      <div class="card-body">
+
+        <h2 class="h6 mb-2">Your Cafes</h2>
+        <p class="text-muted mb-3" style="font-size:0.95rem;">
+          These appear after staff scan your QR at a cafe (or if you work there).
+        </p>
+
+        {% if cafes and cafes|length > 0 %}
+          <div class="list-group">
+
+            {% for c in cafes %}
+              <div class="list-group-item d-flex justify-content-between align-items-center gap-2">
+                <div>
+                  <div class="fw-semibold">{{ c.name }}</div>
+                  <div class="text-muted" style="font-size:0.9rem;">/{{ c.slug }}</div>
+                </div>
+
+                <!-- Select cafe and go to /card -->
+                <form method="post" action="{{ url_for('select_cafe_post') }}" class="m-0">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                  <input type="hidden" name="cafe_id" value="{{ c.id }}">
+                  <button class="btn btn-primary btn-sm" type="submit">
+                    View Card
+                  </button>
+                </form>
+              </div>
+            {% endfor %}
+
+          </div>
+
+          <div class="text-muted mt-3" style="font-size:0.9rem;">
+            Tip: if a cafe isn’t listed yet, ask staff to scan your QR once and it’ll show up.
+          </div>
+
+        {% else %}
+          <div class="alert alert-info mb-0">
+            No cafes yet. Ask staff to scan your QR at your first visit, then you’ll be able to view that cafe’s card here.
+          </div>
+        {% endif %}
 
         <hr class="my-4">
 
         <div class="d-grid gap-2">
-          <a class="btn btn-primary" href="{{ url_for('select_cafe') }}">
-            Select a Cafe (Optional)
+          <a class="btn btn-outline-secondary" href="{{ url_for('select_cafe') }}">
+            Switch / Select Cafe
           </a>
-
-          {% if active_cafe %}
-            <a class="btn btn-outline-secondary" href="{{ url_for('card') }}">
-              View My Card for {{ active_cafe.name }}
-            </a>
-          {% endif %}
         </div>
-
-        <p class="text-muted mt-3 mb-0" style="font-size:0.9rem;">
-          If you pick a cafe, you’ll be able to see your stamps for that specific cafe.
-        </p>
 
       </div>
     </div>
