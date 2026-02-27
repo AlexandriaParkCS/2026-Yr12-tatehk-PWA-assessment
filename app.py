@@ -801,8 +801,8 @@ def create_app():
             return redirect(url_for("cafe_settings"))
 
         stamps_required_i = int(stamps_required)
-        if stamps_required_i < 1 or stamps_required_i > 50:
-            flash("Stamps required must be between 1 and 50.", "danger")
+        if stamps_required_i < 1 or stamps_required_i > 100:
+            flash("Stamps required must be between 1 and 100.", "danger")
             return redirect(url_for("cafe_settings"))
 
         if not reward_name:

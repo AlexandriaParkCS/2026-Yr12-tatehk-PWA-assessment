@@ -1,9 +1,9 @@
 {
-  "name": "Coffee Loyalty",
+  "name": "Tate's Coffee Loyalty",
   "short_name": "Loyalty",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#ffffff",
+  "background_color": "#b85c5e",
   "theme_color": "#212529",
-  "icons": []
+  "icons": ["favicon.icon"]
 }
