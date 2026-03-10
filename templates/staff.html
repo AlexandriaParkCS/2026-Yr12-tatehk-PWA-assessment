@@ -1,68 +1,144 @@
 {% extends "base.html" %}
 {% block content %}
 
-<div class="row g-3">
+<div class="mb-4">
+  <h1 class="h4 mb-1">Staff Scanner</h1>
+  <p class="text-muted mb-0">
+    Scan a customer QR code or search by username/email.
+  </p>
+</div>
 
-  <!-- Scanner -->
-  <div class="col-lg-6">
-    <div class="card shadow-sm">
-      <div class="card-body">
-        <h1 class="h5">Staff – {{ active_cafe.name }}</h1>
+<div class="row g-4">
 
-        <div class="mb-2 text-muted" style="font-size:0.9rem;">
-          Reward: <strong>{{ settings.reward_name }}</strong>
-          ({{ settings.stamps_required }} stamps)
+  <!-- Scanner + search -->
+  <div class="col-lg-7">
+
+    <!-- Scanner card -->
+    <div class="card border-0 shadow-sm mb-4" style="border-radius: 22px;">
+      <div class="card-body p-4">
+
+        <div class="d-flex justify-content-between align-items-start flex-wrap gap-3 mb-3">
+          <div>
+            <h2 class="h5 mb-1">{{ active_cafe.name }}</h2>
+            <div class="text-muted" style="font-size:0.95rem;">
+              Reward: <strong>{{ settings.reward_name }}</strong>
+              • {{ settings.stamps_required }} stamps
+            </div>
+          </div>
+
+          <span class="badge text-bg-secondary px-3 py-2">
+            Scanner
+          </span>
         </div>
 
-        <div id="reader" style="width:100%;"></div>
+        <div class="d-flex gap-2 mb-3 flex-wrap">
+          <button class="btn btn-success btn-sm" id="startBtn" type="button">
+            Start Scanner
+          </button>
+          <button class="btn btn-outline-secondary btn-sm" id="flipBtn" type="button" disabled>
+            Flip Camera
+          </button>
+          <button class="btn btn-outline-secondary btn-sm" id="stopBtn" type="button" disabled>
+            Stop
+          </button>
+          <span class="text-muted align-self-center" style="font-size:0.9rem;" id="camHint"></span>
+        </div>
+
+        <div id="camError" class="alert alert-warning py-2" style="display:none;"></div>
+
+        <div id="reader" class="rounded-4 overflow-hidden border" style="width:100%; min-height: 280px;"></div>
 
         <div class="mt-3">
           <label class="form-label">Scanned Token</label>
-          <input class="form-control" id="token" placeholder="Scan QR code…">
+          <input class="form-control" id="token" placeholder="QR token will appear here…">
         </div>
+
       </div>
     </div>
+
+    <!-- Search card -->
+    <div class="card border-0 shadow-sm" style="border-radius: 22px;">
+      <div class="card-body p-4">
+
+        <div class="d-flex justify-content-between align-items-start flex-wrap gap-3 mb-3">
+          <div>
+            <h2 class="h5 mb-1">Find Customer</h2>
+            <div class="text-muted" style="font-size:0.95rem;">
+              Search by username or email if scanning isn’t available.
+            </div>
+          </div>
+
+          <span class="badge text-bg-light border px-3 py-2">
+            Search
+          </span>
+        </div>
+
+        <div class="mb-3">
+          <input
+            class="form-control"
+            id="searchInput"
+            placeholder="Start typing a username or email…">
+        </div>
+
+        <div id="searchResults" class="d-grid gap-2"></div>
+
+      </div>
+    </div>
+
   </div>
 
-  <!-- Prompt Panel -->
-  <div class="col-lg-6">
-    <div class="card shadow-sm">
-      <div class="card-body">
+  <!-- Customer action panel -->
+  <div class="col-lg-5">
+    <div class="card border-0 shadow-sm" style="border-radius: 22px;">
+      <div class="card-body p-4">
 
-        <h2 class="h6">Customer</h2>
+        <div class="d-flex justify-content-between align-items-start flex-wrap gap-2 mb-3">
+          <div>
+            <h2 class="h5 mb-1">Customer Action</h2>
+            <div class="text-muted" style="font-size:0.95rem;">
+              Confirm customer details before continuing.
+            </div>
+          </div>
+
+          <span class="badge text-bg-primary px-3 py-2">
+            Live
+          </span>
+        </div>
 
         <div id="emptyMsg" class="text-muted">
-          Scan a QR code to load details.
+          Scan a QR code or select a customer from search results.
         </div>
 
         <div id="promptBox" style="display:none;">
 
-          <div class="mb-2">
-            <div class="fw-semibold" id="pName"></div>
-            <div class="text-muted" id="pEmail" style="font-size:0.9rem;"></div>
+          <div class="border rounded-4 p-3 mb-3 bg-light">
+            <div class="fw-semibold fs-5" id="pName"></div>
+            <div class="text-muted" id="pEmail" style="font-size:0.95rem;"></div>
           </div>
 
-          <div class="mb-3">
-            <span class="badge text-bg-secondary" id="pStamps"></span>
-            <span class="badge text-bg-success" id="pReward" style="display:none;"></span>
+          <div class="d-flex gap-2 flex-wrap mb-3">
+            <span class="badge text-bg-secondary px-3 py-2" id="pStamps"></span>
+            <span class="badge text-bg-success px-3 py-2" id="pReward" style="display:none;"></span>
           </div>
 
-          <div id="actionText" class="alert alert-info py-2"></div>
+          <div id="actionText" class="alert alert-info py-2 mb-3"></div>
 
-          <div class="d-flex gap-2">
-
+          <div class="d-grid gap-2">
             <form method="post" action="{{ url_for('staff_add_stamp_by_token') }}">
               <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
               <input type="hidden" name="token" id="addToken">
-              <button class="btn btn-success" id="addBtn">Add Stamp</button>
+              <button class="btn btn-success w-100" id="addBtn" type="submit">
+                Add Stamp
+              </button>
             </form>
 
             <form method="post" action="{{ url_for('staff_redeem_by_token') }}">
               <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
               <input type="hidden" name="token" id="redeemToken">
-              <button class="btn btn-warning" id="redeemBtn">Redeem</button>
+              <button class="btn btn-warning w-100" id="redeemBtn" type="submit">
+                Redeem Reward
+              </button>
             </form>
-
           </div>
 
         </div>
@@ -90,45 +166,80 @@ const redeemBtn = document.getElementById("redeemBtn");
 const addToken = document.getElementById("addToken");
 const redeemToken = document.getElementById("redeemToken");
 
+const startBtn = document.getElementById("startBtn");
+const flipBtn = document.getElementById("flipBtn");
+const stopBtn = document.getElementById("stopBtn");
+const camHint = document.getElementById("camHint");
+const camError = document.getElementById("camError");
+
+const searchInput = document.getElementById("searchInput");
+const searchResults = document.getElementById("searchResults");
+
+function showCamError(msg) {
+  camError.style.display = "block";
+  camError.innerHTML = msg;
+}
+function clearCamError() {
+  camError.style.display = "none";
+  camError.innerHTML = "";
+}
+
+function escapeHtml(str) {
+  return (str || "").replace(/[&<>"']/g, m => ({
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    '"': "&quot;",
+    "'": "&#039;"
+  }[m]));
+}
+
+function setCustomerPrompt(data, token) {
+  const u = data.user;
+  const c = data.card;
+
+  emptyMsg.style.display = "none";
+  promptBox.style.display = "block";
+
+  pName.textContent = u.username;
+  pEmail.textContent = u.email;
+  pStamps.textContent = `Stamps: ${c.stamps}/${c.stamps_required}`;
+
+  addToken.value = token;
+  redeemToken.value = token;
+
+  if (c.reward_available) {
+    pReward.style.display = "inline-block";
+    pReward.textContent = `${c.reward_name} Ready`;
+    actionText.className = "alert alert-success py-2 mb-3";
+    actionText.innerHTML = `🎉 Redeem <strong>${c.reward_name}</strong> for ${escapeHtml(u.username)}?`;
+    redeemBtn.disabled = false;
+    addBtn.disabled = true;
+  } else {
+    pReward.style.display = "none";
+    actionText.className = "alert alert-info py-2 mb-3";
+    actionText.innerHTML = `Add a stamp for <strong>${escapeHtml(u.username)}</strong>?`;
+    redeemBtn.disabled = true;
+    addBtn.disabled = false;
+  }
+}
+
 function loadCustomer(token) {
   fetch(`/staff/lookup?token=${encodeURIComponent(token)}`)
     .then(r => r.json())
     .then(data => {
-
       if (!data.ok) {
+        emptyMsg.style.display = "block";
         emptyMsg.textContent = data.error || "User not found";
         promptBox.style.display = "none";
         return;
       }
-
-      emptyMsg.style.display = "none";
-      promptBox.style.display = "block";
-
-      const u = data.user;
-      const c = data.card;
-
-      pName.textContent = u.username;
-      pEmail.textContent = u.email;
-      pStamps.textContent = `Stamps: ${c.stamps}/${c.stamps_required}`;
-
-      addToken.value = token;
-      redeemToken.value = token;
-
-      if (c.reward_available) {
-        pReward.style.display = "inline-block";
-        pReward.textContent = `${c.reward_name} Ready`;
-        actionText.className = "alert alert-success py-2";
-        actionText.innerHTML = `🎉 Redeem <strong>${c.reward_name}</strong> for ${u.username}?`;
-        redeemBtn.disabled = false;
-        addBtn.disabled = true;
-      } else {
-        pReward.style.display = "none";
-        actionText.className = "alert alert-info py-2";
-        actionText.innerHTML = `Add a stamp for <strong>${u.username}</strong>?`;
-        redeemBtn.disabled = true;
-        addBtn.disabled = false;
-      }
-
+      setCustomerPrompt(data, token);
+    })
+    .catch(() => {
+      emptyMsg.style.display = "block";
+      emptyMsg.textContent = "Could not load customer details.";
+      promptBox.style.display = "none";
     });
 }
 
@@ -137,11 +248,152 @@ function onScanSuccess(decodedText) {
   loadCustomer(decodedText);
 }
 
+// ---- Camera handling ----
 const qr = new Html5Qrcode("reader");
-Html5Qrcode.getCameras().then(cameras => {
-  if (cameras.length) {
-    qr.start(cameras[0].id, { fps: 10, qrbox: 220 }, onScanSuccess);
+let started = false;
+let usingFacingMode = "environment";
+let transitioning = false;
+
+function setControlsBusy(isBusy) {
+  startBtn.disabled = isBusy;
+  flipBtn.disabled = isBusy || !started;
+  stopBtn.disabled = isBusy || !started;
+}
+
+async function safeStop() {
+  if (!started) return;
+  try { await qr.stop(); } catch (e) {}
+  started = false;
+}
+
+async function startScanner(mode) {
+  if (transitioning) return;
+  transitioning = true;
+  setControlsBusy(true);
+  clearCamError();
+
+  usingFacingMode = mode;
+  camHint.textContent = (mode === "environment") ? "Starting rear camera…" : "Starting front camera…";
+
+  try {
+    await safeStop();
+    const config = { fps: 10, qrbox: 220 };
+
+    try {
+      await qr.start({ facingMode: { ideal: mode } }, config, onScanSuccess);
+      started = true;
+      camHint.textContent = (mode === "environment") ? "Using rear camera" : "Using front camera";
+    } catch (err) {
+      const cameras = await Html5Qrcode.getCameras();
+      if (!cameras || !cameras.length) throw err;
+
+      const wantRear = mode === "environment";
+      const re = wantRear ? /(back|rear|environment)/i : /(front|user)/i;
+      let chosen = cameras.find(c => re.test(c.label || ""));
+      if (!chosen) chosen = cameras[0];
+
+      await qr.start(chosen.id, config, onScanSuccess);
+      started = true;
+      camHint.textContent = chosen.label ? `Using: ${chosen.label}` : "Camera started";
+    }
+  } catch (e) {
+    showCamError(`Camera start failed.<br><small>${String(e)}</small>`);
+    camHint.textContent = "Camera failed";
+    started = false;
+  } finally {
+    transitioning = false;
+    setControlsBusy(false);
+    flipBtn.disabled = !started;
+    stopBtn.disabled = !started;
   }
+}
+
+async function stopScanner() {
+  if (transitioning) return;
+  transitioning = true;
+  setControlsBusy(true);
+  clearCamError();
+
+  try {
+    await safeStop();
+    camHint.textContent = "Stopped";
+  } finally {
+    transitioning = false;
+    setControlsBusy(false);
+    flipBtn.disabled = true;
+    stopBtn.disabled = true;
+  }
+}
+
+startBtn.addEventListener("click", () => startScanner("environment"));
+flipBtn.addEventListener("click", () => {
+  const next = (usingFacingMode === "environment") ? "user" : "environment";
+  startScanner(next);
+});
+stopBtn.addEventListener("click", () => stopScanner());
+
+const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+if (!isIOS) {
+  startScanner("environment");
+} else {
+  camHint.textContent = "Tap Start Scanner";
+}
+
+// ---- Search handling ----
+let searchTimer = null;
+
+function renderSearchResults(results) {
+  if (!results.length) {
+    searchResults.innerHTML = `<div class="text-muted">No matching customers found.</div>`;
+    return;
+  }
+
+  searchResults.innerHTML = results.map(item => `
+    <button
+      type="button"
+      class="btn btn-outline-light border text-start p-3 rounded-4"
+      data-token="${escapeHtml(item.qr_token)}">
+      <div class="d-flex justify-content-between align-items-start gap-3">
+        <div>
+          <div class="fw-semibold">${escapeHtml(item.username)}</div>
+          <div class="text-muted" style="font-size:0.9rem;">${escapeHtml(item.email)}</div>
+        </div>
+        <div class="text-end">
+          <div class="small text-muted">${item.stamps}/${item.stamps_required}</div>
+          ${item.reward_available ? '<span class="badge text-bg-success mt-1">Reward Ready</span>' : ''}
+        </div>
+      </div>
+    </button>
+  `).join("");
+
+  document.querySelectorAll("[data-token]").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const token = btn.getAttribute("data-token");
+      tokenInput.value = token;
+      loadCustomer(token);
+    });
+  });
+}
+
+function searchCustomers() {
+  const q = searchInput.value.trim();
+
+  if (q.length < 2) {
+    searchResults.innerHTML = "";
+    return;
+  }
+
+  fetch(`/staff/search-json?q=${encodeURIComponent(q)}`)
+    .then(r => r.json())
+    .then(data => renderSearchResults(data))
+    .catch(() => {
+      searchResults.innerHTML = `<div class="text-danger">Search failed.</div>`;
+    });
+}
+
+searchInput.addEventListener("input", () => {
+  clearTimeout(searchTimer);
+  searchTimer = setTimeout(searchCustomers, 250);
 });
 </script>
 
