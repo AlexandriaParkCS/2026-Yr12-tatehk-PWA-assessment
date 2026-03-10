@@ -248,97 +248,107 @@ function onScanSuccess(decodedText) {
   loadCustomer(decodedText);
 }
 
-// ---- Camera handling ----
 const qr = new Html5Qrcode("reader");
 let started = false;
-let usingFacingMode = "environment";
-let transitioning = false;
+let currentCameraId = null;
 
-function setControlsBusy(isBusy) {
-  startBtn.disabled = isBusy;
-  flipBtn.disabled = isBusy || !started;
-  stopBtn.disabled = isBusy || !started;
-}
+async function startScanner() {
+  if (started) return;
 
-async function safeStop() {
-  if (!started) return;
-  try { await qr.stop(); } catch (e) {}
-  started = false;
-}
-
-async function startScanner(mode) {
-  if (transitioning) return;
-  transitioning = true;
-  setControlsBusy(true);
   clearCamError();
-
-  usingFacingMode = mode;
-  camHint.textContent = (mode === "environment") ? "Starting rear camera…" : "Starting front camera…";
+  camHint.textContent = "Starting camera...";
+  startBtn.disabled = true;
+  stopBtn.disabled = true;
+  flipBtn.disabled = true;
 
   try {
-    await safeStop();
-    const config = { fps: 10, qrbox: 220 };
+    const cameras = await Html5Qrcode.getCameras();
 
-    try {
-      await qr.start({ facingMode: { ideal: mode } }, config, onScanSuccess);
-      started = true;
-      camHint.textContent = (mode === "environment") ? "Using rear camera" : "Using front camera";
-    } catch (err) {
-      const cameras = await Html5Qrcode.getCameras();
-      if (!cameras || !cameras.length) throw err;
-
-      const wantRear = mode === "environment";
-      const re = wantRear ? /(back|rear|environment)/i : /(front|user)/i;
-      let chosen = cameras.find(c => re.test(c.label || ""));
-      if (!chosen) chosen = cameras[0];
-
-      await qr.start(chosen.id, config, onScanSuccess);
-      started = true;
-      camHint.textContent = chosen.label ? `Using: ${chosen.label}` : "Camera started";
+    if (!cameras || cameras.length === 0) {
+      throw new Error("No cameras found");
     }
-  } catch (e) {
-    showCamError(`Camera start failed.<br><small>${String(e)}</small>`);
+
+    // Prefer rear/back camera if labelled, otherwise first available
+    let chosen = cameras.find(c => /(back|rear|environment)/i.test(c.label || ""));
+    if (!chosen) chosen = cameras[0];
+
+    currentCameraId = chosen.id;
+
+    await qr.start(
+      currentCameraId,
+      { fps: 10, qrbox: 220 },
+      onScanSuccess
+    );
+
+    started = true;
+    camHint.textContent = chosen.label ? `Using: ${chosen.label}` : "Camera running";
+    stopBtn.disabled = false;
+    flipBtn.disabled = cameras.length < 2;
+  } catch (err) {
     camHint.textContent = "Camera failed";
-    started = false;
-  } finally {
-    transitioning = false;
-    setControlsBusy(false);
-    flipBtn.disabled = !started;
-    stopBtn.disabled = !started;
+    showCamError(`Camera start failed.<br><small>${String(err)}</small>`);
+    startBtn.disabled = false;
   }
 }
 
 async function stopScanner() {
-  if (transitioning) return;
-  transitioning = true;
-  setControlsBusy(true);
+  if (!started) return;
+
+  startBtn.disabled = true;
+  stopBtn.disabled = true;
+  flipBtn.disabled = true;
   clearCamError();
 
   try {
-    await safeStop();
-    camHint.textContent = "Stopped";
-  } finally {
-    transitioning = false;
-    setControlsBusy(false);
-    flipBtn.disabled = true;
+    await qr.stop();
+  } catch (err) {
+    console.error(err);
+  }
+
+  started = false;
+  camHint.textContent = "Stopped";
+  startBtn.disabled = false;
+}
+
+async function flipCamera() {
+  if (!started) return;
+
+  try {
+    const cameras = await Html5Qrcode.getCameras();
+    if (!cameras || cameras.length < 2) return;
+
+    const index = cameras.findIndex(c => c.id === currentCameraId);
+    const nextIndex = (index + 1) % cameras.length;
+    const nextCamera = cameras[nextIndex];
+
+    startBtn.disabled = true;
     stopBtn.disabled = true;
+    flipBtn.disabled = true;
+
+    await qr.stop();
+    started = false;
+
+    currentCameraId = nextCamera.id;
+    await qr.start(
+      currentCameraId,
+      { fps: 10, qrbox: 220 },
+      onScanSuccess
+    );
+
+    started = true;
+    camHint.textContent = nextCamera.label ? `Using: ${nextCamera.label}` : "Camera running";
+    stopBtn.disabled = false;
+    flipBtn.disabled = false;
+  } catch (err) {
+    showCamError(`Camera switch failed.<br><small>${String(err)}</small>`);
+    camHint.textContent = "Switch failed";
+    startBtn.disabled = false;
   }
 }
 
-startBtn.addEventListener("click", async () => {
-  if (transitioning || started) return;
-  await startScanner("environment");
-});
-flipBtn.addEventListener("click", async () => {
-  if (transitioning || !started) return;
-  const next = (usingFacingMode === "environment") ? "user" : "environment";
-  await startScanner(next);
-});
-flipBtn.addEventListener("click", async () => {
-  if (transitioning || !started) return;
-  const next = (usingFacingMode === "environment") ? "user" : "environment";
-  await startScanner(next);
-});
+startBtn.addEventListener("click", startScanner);
+stopBtn.addEventListener("click", stopScanner);
+flipBtn.addEventListener("click", flipCamera);
 
 camHint.textContent = "Tap Start Scanner";
 
@@ -399,5 +409,4 @@ searchInput.addEventListener("input", () => {
   searchTimer = setTimeout(searchCustomers, 250);
 });
 </script>
-
 {% endblock %}
