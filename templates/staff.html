@@ -256,7 +256,7 @@ async function startScanner() {
   camHint.textContent = "Starting camera...";
   startBtn.disabled = true;
   stopBtn.disabled = true;
-  flipBtn.disabled = true;
+  
 
   try {
     const cameras = await Html5Qrcode.getCameras();
@@ -280,7 +280,6 @@ async function startScanner() {
     started = true;
     camHint.textContent = chosen.label ? `Using: ${chosen.label}` : "Camera running";
     stopBtn.disabled = false;
-    flipBtn.disabled = cameras.length < 2;
   } catch (err) {
     camHint.textContent = "Camera failed";
     showCamError(`Camera start failed.<br><small>${String(err)}</small>`);
@@ -293,7 +292,6 @@ async function stopScanner() {
 
   startBtn.disabled = true;
   stopBtn.disabled = true;
-  flipBtn.disabled = true;
   clearCamError();
 
   try {
