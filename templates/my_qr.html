@@ -2,78 +2,83 @@
 {% block content %}
 
 <div class="row justify-content-center">
-  <div class="col-lg-7">
+  <div class="col-12 col-md-10 col-lg-7">
 
-    <div class="card shadow-sm mb-3">
-      <div class="card-body text-center">
+    <!-- Main QR card -->
+    <div class="card border-0 shadow-lg mb-4" style="border-radius: 24px; overflow: hidden;">
+      <div class="card-body p-4 p-md-5 text-center" style="background: linear-gradient(135deg, #6f4e37 0%, #8b5e3c 100%); color: white;">
 
-        <h1 class="h4 mb-2">Your QR Code</h1>
-        <p class="text-muted mb-4">
-          Show this QR at any participating cafe to earn stamps.
+        <div class="text-uppercase mb-2" style="letter-spacing: 1px; font-size: 0.8rem; opacity: 0.85;">
+          Digital Customer Pass
+        </div>
+
+        <h1 class="h3 mb-2">Your QR Code</h1>
+        <p class="mb-4" style="opacity: 0.92;">
+          Show this at any participating cafe to collect stamps.
         </p>
 
-        <img
-          src="{{ url_for('qr_image', token=me.qr_token) }}"
-          alt="Your QR Code"
-          style="max-width:260px;"
-          class="mb-3"
-        >
+        <div class="bg-white rounded-4 d-inline-flex align-items-center justify-content-center p-3 p-md-4 shadow-sm mb-4">
+          <img
+            src="{{ url_for('qr_image', token=me.qr_token) }}"
+            alt="Your QR Code"
+            style="width: min(100%, 260px); height: auto;">
+        </div>
 
-        <div class="text-muted" style="font-size:0.95rem;">
+        <div style="opacity: 0.92; font-size: 0.95rem;">
           Logged in as <strong>{{ me.username }}</strong>
         </div>
 
       </div>
     </div>
 
-    <div class="card shadow-sm">
-      <div class="card-body">
+    <!-- Cafe list -->
+    <div class="card border-0 shadow-sm" style="border-radius: 22px;">
+      <div class="card-body p-4">
 
-        <h2 class="h6 mb-2">Your Cafes</h2>
-        <p class="text-muted mb-3" style="font-size:0.95rem;">
-          These appear after staff scan your QR at a cafe (or if you work there).
-        </p>
+        <div class="d-flex justify-content-between align-items-start gap-3 flex-wrap mb-3">
+          <div>
+            <h2 class="h5 mb-1">Your Cafes</h2>
+            <p class="text-muted mb-0">
+              Once staff scan your QR at a cafe, it will appear here.
+            </p>
+          </div>
+        </div>
 
         {% if cafes and cafes|length > 0 %}
-          <div class="list-group">
+          <div class="d-grid gap-3">
 
             {% for c in cafes %}
-              <div class="list-group-item d-flex justify-content-between align-items-center gap-2">
-                <div>
-                  <div class="fw-semibold">{{ c.name }}</div>
-                  <div class="text-muted" style="font-size:0.9rem;">/{{ c.slug }}</div>
-                </div>
+              <div class="border rounded-4 p-3 p-md-4">
+                <div class="d-flex justify-content-between align-items-center gap-3 flex-wrap">
+                  <div>
+                    <div class="fw-semibold fs-6">{{ c.name }}</div>
+                    <div class="text-muted" style="font-size: 0.9rem;">
+                      /{{ c.slug }}
+                    </div>
+                  </div>
 
-                <!-- Select cafe and go to /card -->
-                <form method="post" action="{{ url_for('select_cafe_post') }}" class="m-0">
-                  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-                  <input type="hidden" name="cafe_id" value="{{ c.id }}">
-                  <button class="btn btn-primary btn-sm" type="submit">
-                    View Card
-                  </button>
-                </form>
+                  <form method="post" action="{{ url_for('select_cafe_post') }}" class="m-0">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                    <input type="hidden" name="cafe_id" value="{{ c.id }}">
+                    <button class="btn btn-primary px-4" type="submit">
+                      View Card
+                    </button>
+                  </form>
+                </div>
               </div>
             {% endfor %}
 
           </div>
 
-          <div class="text-muted mt-3" style="font-size:0.9rem;">
-            Tip: if a cafe isn’t listed yet, ask staff to scan your QR once and it’ll show up.
+          <div class="text-muted mt-3" style="font-size: 0.9rem;">
+            Your card progress is tracked separately for each cafe.
           </div>
 
         {% else %}
           <div class="alert alert-info mb-0">
-            No cafes yet. Ask staff to scan your QR at your first visit, then you’ll be able to view that cafe’s card here.
+            No cafes yet. Ask staff to scan your QR at your first visit and your cafe card will appear here.
           </div>
         {% endif %}
-
-        <hr class="my-4">
-
-        <div class="d-grid gap-2">
-          <a class="btn btn-outline-secondary" href="{{ url_for('select_cafe') }}">
-            Switch / Select Cafe
-          </a>
-        </div>
 
       </div>
     </div>

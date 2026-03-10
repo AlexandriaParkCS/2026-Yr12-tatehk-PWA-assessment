@@ -407,6 +407,27 @@ def create_app():
         cafes = cafes_accessible_to_user(current_user())
         return render_template("select_cafe.html", cafes=cafes)
 
+    @app.get("/card/status")
+    @require_login
+    @require_cafe_selected
+    def card_status():
+        u = current_user()
+        cafe = current_cafe()
+        settings = ensure_cafe_settings(cafe)
+        card = ensure_loyalty_card(u, cafe)
+
+        progress = 0
+        if settings.stamps_required > 0:
+            progress = min(100, (card.stamp_count * 100) / settings.stamps_required)
+
+        return jsonify({
+            "stamp_count": card.stamp_count,
+            "stamps_required": settings.stamps_required,
+            "reward_available": card.reward_available,
+            "reward_name": settings.reward_name,
+            "progress": progress
+        })
+
     @app.post("/select-cafe")
     @require_login
     def select_cafe_post():

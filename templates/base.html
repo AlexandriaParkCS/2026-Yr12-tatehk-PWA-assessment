@@ -1,130 +1,215 @@
 <!doctype html>
 <html lang="en">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Coffee Loyalty</title>
 
-  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+
+<title>Coffee Loyalty</title>
+
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+
+<style>
+
+body{
+  background:#f6f7f9;
+}
+
+.navbar{
+  backdrop-filter: blur(8px);
+}
+
+.main-container{
+  max-width:1100px;
+}
+
+.notification-badge{
+  font-size:0.7rem;
+}
+
+</style>
+
 </head>
-<body class="bg-light">
 
-<nav class="navbar navbar-expand-lg navbar-dark bg-dark">
-  <div class="container">
+<body>
 
-    <a class="navbar-brand" href="{{ url_for('index') }}">
-      Coffee Loyalty
-    </a>
+<!-- NAVBAR -->
+<nav class="navbar navbar-expand-lg navbar-dark bg-dark sticky-top">
+<div class="container main-container">
 
-    <div class="ms-auto d-flex gap-2 align-items-center flex-wrap">
+<a class="navbar-brand fw-semibold" href="{{ url_for('index') }}">
+☕ Coffee Loyalty
+</a>
 
-      {% if me %}
+<button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navMenu">
+<span class="navbar-toggler-icon"></span>
+</button>
 
-        {% if active_cafe %}
-          <span class="badge text-bg-secondary">
-            {{ active_cafe.name }}
-          </span>
-        {% endif %}
+<div class="collapse navbar-collapse" id="navMenu">
 
-        <!-- My QR (always available when logged in) -->
-        <a class="btn btn-outline-light btn-sm"
-           href="{{ url_for('my_qr') }}">
-          My QR
-        </a>
+<div class="ms-auto d-flex flex-wrap align-items-center gap-2 mt-3 mt-lg-0">
 
-        <!-- Customer: My Card (only if cafe selected and not staff/manager/admin) -->
-        {% if active_cafe and not me_is_admin and not me_membership %}
-          <a class="btn btn-outline-light btn-sm"
-             href="{{ url_for('card') }}">
-            My Card
-          </a>
-        {% endif %}
+{% if me %}
 
-        <!-- Staff -->
-        {% if active_cafe and (me_is_admin or (me_membership and me_membership.role in ['staff','manager'])) %}
-          <a class="btn btn-outline-info btn-sm"
-             href="{{ url_for('staff_home') }}">
-            Staff
-          </a>
-        {% endif %}
+{% if active_cafe %}
+<span class="badge bg-secondary px-3 py-2">
+{{ active_cafe.name }}
+</span>
+{% endif %}
 
-        <!-- Manager -->
-        {% if active_cafe and (me_is_admin or (me_membership and me_membership.role == 'manager')) %}
-          <a class="btn btn-outline-primary btn-sm"
-             href="{{ url_for('manager_dashboard') }}">
-            Manager
-          </a>
+<!-- Customer -->
+{% if active_cafe and not me_is_admin and not me_membership %}
+<a class="btn btn-outline-light btn-sm"
+href="{{ url_for('card') }}">
+My Card
+</a>
+{% endif %}
 
-          <!-- Manager: Staff tab -->
-          <a class="btn btn-outline-primary btn-sm"
-             href="{{ url_for('manager_staff') }}">
-            Staff Users
-          </a>
+<!-- Staff -->
+{% if active_cafe and (me_is_admin or (me_membership and me_membership.role in ['staff','manager'])) %}
+<a class="btn btn-outline-info btn-sm"
+href="{{ url_for('staff_home') }}">
+Staff
+</a>
+{% endif %}
 
-          <a class="btn btn-outline-secondary btn-sm"
-             href="{{ url_for('cafe_settings') }}">
-            Settings
-          </a>
-        {% endif %}
+<!-- Manager -->
+{% if active_cafe and (me_is_admin or (me_membership and me_membership.role == 'manager')) %}
+<a class="btn btn-outline-primary btn-sm"
+href="{{ url_for('manager_dashboard') }}">
+Manager
+</a>
 
-        <!-- Cafe Switch -->
-        <a class="btn btn-outline-light btn-sm"
-           href="{{ url_for('select_cafe') }}">
-          Switch Cafe
-        </a>
+<a class="btn btn-outline-secondary btn-sm"
+href="{{ url_for('cafe_settings') }}">
+Settings
+</a>
+{% endif %}
 
-        <!-- Global Admin -->
-        {% if me_is_admin %}
-          <a class="btn btn-outline-warning btn-sm"
-             href="{{ url_for('admin_create_cafe') }}">
-            Admin Cafes
-          </a>
+<!-- QR page -->
+<a class="btn btn-outline-light btn-sm"
+href="{{ url_for('my_qr') }}">
+My QR
+</a>
 
-          <a class="btn btn-outline-warning btn-sm"
-             href="{{ url_for('admin_users') }}">
-            Users
-          </a>
-        {% endif %}
+<!-- Switch cafe -->
+<a class="btn btn-outline-light btn-sm"
+href="{{ url_for('select_cafe') }}">
+Switch Cafe
+</a>
 
-        <!-- Logout -->
-        <form method="post" action="{{ url_for('logout') }}" class="m-0">
-          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-          <button class="btn btn-warning btn-sm" type="submit">
-            Logout
-          </button>
-        </form>
+<!-- Notifications -->
+{% if unread_notifications %}
+<div class="dropdown">
 
-      {% else %}
-        <a class="btn btn-outline-light btn-sm"
-           href="{{ url_for('login') }}">
-          Login
-        </a>
+<button class="btn btn-outline-warning btn-sm dropdown-toggle"
+data-bs-toggle="dropdown">
 
-        <a class="btn btn-success btn-sm"
-           href="{{ url_for('register') }}">
-          Register
-        </a>
-      {% endif %}
+Notifications
+<span class="badge bg-danger notification-badge">
+{{ unread_notifications|length }}
+</span>
 
-    </div>
-  </div>
+</button>
+
+<div class="dropdown-menu dropdown-menu-end p-2" style="width:300px">
+
+{% for n in unread_notifications %}
+
+<div class="border-bottom pb-2 mb-2">
+
+<div class="fw-semibold small">
+{{ n.title }}
+</div>
+
+<div class="small text-muted">
+{{ n.message }}
+</div>
+
+<form method="post"
+action="{{ url_for('mark_notification_read', notification_id=n.id) }}">
+
+<input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+
+<button class="btn btn-sm btn-link p-0">
+Mark read
+</button>
+
+</form>
+
+</div>
+
+{% endfor %}
+
+</div>
+
+</div>
+{% endif %}
+
+<!-- Global admin -->
+{% if me_is_admin %}
+<a class="btn btn-outline-warning btn-sm"
+href="{{ url_for('admin_create_cafe') }}">
+Admin
+</a>
+{% endif %}
+
+<!-- Logout -->
+<form method="post"
+action="{{ url_for('logout') }}"
+class="m-0">
+
+<input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+
+<button class="btn btn-warning btn-sm">
+Logout
+</button>
+
+</form>
+
+{% else %}
+
+<a class="btn btn-outline-light btn-sm"
+href="{{ url_for('login') }}">
+Login
+</a>
+
+<a class="btn btn-success btn-sm"
+href="{{ url_for('register') }}">
+Register
+</a>
+
+{% endif %}
+
+</div>
+
+</div>
+</div>
 </nav>
 
-<main class="container py-4">
 
-  {% with messages = get_flashed_messages(with_categories=true) %}
-    {% if messages %}
-      {% for category, msg in messages %}
-        <div class="alert alert-{{ category }} mb-3">
-          {{ msg }}
-        </div>
-      {% endfor %}
-    {% endif %}
-  {% endwith %}
+<!-- MAIN CONTENT -->
+<main class="container main-container py-4">
 
-  {% block content %}{% endblock %}
+{% with messages = get_flashed_messages(with_categories=true) %}
+{% if messages %}
+
+{% for category, msg in messages %}
+
+<div class="alert alert-{{ category }} mb-3">
+{{ msg }}
+</div>
+
+{% endfor %}
+
+{% endif %}
+{% endwith %}
+
+{% block content %}{% endblock %}
 
 </main>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 
 </body>
 </html>
