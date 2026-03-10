@@ -35,9 +35,6 @@
           <button class="btn btn-success btn-sm" id="startBtn" type="button">
             Start Scanner
           </button>
-          <button class="btn btn-outline-secondary btn-sm" id="flipBtn" type="button" disabled>
-            Flip Camera
-          </button>
           <button class="btn btn-outline-secondary btn-sm" id="stopBtn" type="button" disabled>
             Stop
           </button>
@@ -167,7 +164,7 @@ const addToken = document.getElementById("addToken");
 const redeemToken = document.getElementById("redeemToken");
 
 const startBtn = document.getElementById("startBtn");
-const flipBtn = document.getElementById("flipBtn");
+
 const stopBtn = document.getElementById("stopBtn");
 const camHint = document.getElementById("camHint");
 const camError = document.getElementById("camError");
@@ -348,7 +345,7 @@ async function flipCamera() {
 
 startBtn.addEventListener("click", startScanner);
 stopBtn.addEventListener("click", stopScanner);
-flipBtn.addEventListener("click", flipCamera);
+
 
 camHint.textContent = "Tap Start Scanner";
 
