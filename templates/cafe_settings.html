@@ -1,51 +1,255 @@
 {% extends "base.html" %}
 {% block content %}
 
-<div class="row justify-content-center">
-  <div class="col-lg-7">
+<div class="mb-4">
+  <h1 class="h4 mb-1">Cafe Settings</h1>
+  <p class="text-muted mb-0">
+    Manage branding, loyalty rules, staff permissions, and invite settings for <strong>{{ active_cafe.name }}</strong>.
+  </p>
+</div>
 
-    <div class="card shadow-sm">
-      <div class="card-body">
+<form method="post" action="{{ url_for('cafe_settings_post') }}">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
 
-        <h1 class="h4 mb-2">Cafe Settings</h1>
-        <p class="text-muted mb-4">
-          Cafe: <strong>{{ active_cafe.name }}</strong>
-        </p>
+  <div class="row g-4">
 
-        <form method="post" action="{{ url_for('cafe_settings_post') }}">
-          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <!-- Branding -->
+    <div class="col-12 col-lg-6">
+      <div class="card border-0 shadow-sm h-100" style="border-radius: 22px;">
+        <div class="card-body p-4">
+          <h2 class="h5 mb-3">Branding & Theme</h2>
 
           <div class="mb-3">
-            <label class="form-label">Stamps Required for Reward</label>
-            <input type="number" class="form-control" name="stamps_required"
-                   min="1" max="50" value="{{ settings.stamps_required }}" required>
-            <div class="form-text">Common values: 6, 9, 10.</div>
+            <label class="form-label">Logo URL</label>
+            <input type="text" class="form-control" name="logo_url" value="{{ active_cafe.logo_url or '' }}" placeholder="https://example.com/logo.png">
+          </div>
+
+          <div class="row g-3">
+            <div class="col-sm-6">
+              <label class="form-label">Accent Colour</label>
+              <input type="color" class="form-control form-control-color w-100" name="accent_color" value="{{ active_cafe.accent_color }}">
+            </div>
+            <div class="col-sm-6">
+              <label class="form-label">Secondary Colour</label>
+              <input type="color" class="form-control form-control-color w-100" name="secondary_color" value="{{ active_cafe.secondary_color }}">
+            </div>
+          </div>
+
+          <div class="row g-3 mt-1">
+            <div class="col-sm-6">
+              <label class="form-label">Theme Mode</label>
+              <select class="form-select" name="theme_mode">
+                <option value="light" {% if active_cafe.theme_mode == 'light' %}selected{% endif %}>Light</option>
+                <option value="dark" {% if active_cafe.theme_mode == 'dark' %}selected{% endif %}>Dark</option>
+                <option value="coffee" {% if active_cafe.theme_mode == 'coffee' %}selected{% endif %}>Coffee</option>
+                <option value="modern" {% if active_cafe.theme_mode == 'modern' %}selected{% endif %}>Modern</option>
+              </select>
+            </div>
+
+            <div class="col-sm-6">
+              <label class="form-label">Card Style</label>
+              <select class="form-select" name="card_style">
+                <option value="rounded" {% if active_cafe.card_style == 'rounded' %}selected{% endif %}>Rounded</option>
+                <option value="minimal" {% if active_cafe.card_style == 'minimal' %}selected{% endif %}>Minimal</option>
+                <option value="bold" {% if active_cafe.card_style == 'bold' %}selected{% endif %}>Bold</option>
+              </select>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Loyalty -->
+    <div class="col-12 col-lg-6">
+      <div class="card border-0 shadow-sm h-100" style="border-radius: 22px;">
+        <div class="card-body p-4">
+          <h2 class="h5 mb-3">Loyalty Rules</h2>
+
+          <div class="mb-3">
+            <label class="form-label">Loyalty Type</label>
+            <select class="form-select" name="loyalty_type" id="loyaltyTypeSelect">
+              <option value="stamps" {% if settings.loyalty_type == 'stamps' %}selected{% endif %}>Stamps</option>
+              <option value="points" {% if settings.loyalty_type == 'points' %}selected{% endif %}>Points</option>
+            </select>
           </div>
 
           <div class="mb-3">
             <label class="form-label">Reward Name</label>
-            <input class="form-control" name="reward_name"
-                   value="{{ settings.reward_name }}" required>
-            <div class="form-text">Example: “Free Coffee”, “Free Hot Drink”.</div>
+            <input type="text" class="form-control" name="reward_name" value="{{ settings.reward_name }}" placeholder="Free Coffee">
           </div>
 
-          <div class="form-check mb-4">
-            <input class="form-check-input" type="checkbox" id="staffRedeem"
-                   name="staff_can_redeem" {% if settings.staff_can_redeem %}checked{% endif %}>
-            <label class="form-check-label" for="staffRedeem">
-              Allow staff to redeem rewards (not just managers)
-            </label>
+          <div id="stampFields">
+            <div class="mb-3">
+              <label class="form-label">Stamps Required</label>
+              <input type="number" class="form-control" name="stamps_required" min="1" value="{{ settings.stamps_required }}">
+            </div>
           </div>
 
-          <button class="btn btn-primary w-100" type="submit">
-            Save Settings
-          </button>
-        </form>
+          <div id="pointsFields">
+            <div class="row g-3">
+              <div class="col-sm-6">
+                <label class="form-label">Points Required</label>
+                <input type="number" class="form-control" name="points_required" min="1" value="{{ settings.points_required }}">
+              </div>
+              <div class="col-sm-6">
+                <label class="form-label">Points Per Purchase</label>
+                <input type="number" class="form-control" name="points_per_purchase" min="1" value="{{ settings.points_per_purchase }}">
+              </div>
+            </div>
+          </div>
 
+          <div class="mt-3">
+            <label class="form-label">Welcome Message</label>
+            <input type="text" class="form-control" name="welcome_message" value="{{ settings.welcome_message }}">
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Display -->
+    <div class="col-12 col-lg-6">
+      <div class="card border-0 shadow-sm h-100" style="border-radius: 22px;">
+        <div class="card-body p-4">
+          <h2 class="h5 mb-3">Display Options</h2>
+
+          <div class="form-check mb-2">
+            <input class="form-check-input" type="checkbox" name="show_qr_label" id="show_qr_label" {% if settings.show_qr_label %}checked{% endif %}>
+            <label class="form-check-label" for="show_qr_label">Show QR label</label>
+          </div>
+
+          <div class="form-check mb-2">
+            <input class="form-check-input" type="checkbox" name="show_stamp_numbers" id="show_stamp_numbers" {% if settings.show_stamp_numbers %}checked{% endif %}>
+            <label class="form-check-label" for="show_stamp_numbers">Show stamp numbers</label>
+          </div>
+
+          <div class="form-check mb-2">
+            <input class="form-check-input" type="checkbox" name="show_progress_bar" id="show_progress_bar" {% if settings.show_progress_bar %}checked{% endif %}>
+            <label class="form-check-label" for="show_progress_bar">Show progress bar</label>
+          </div>
+
+          <div class="form-check">
+            <input class="form-check-input" type="checkbox" name="show_reward_badge" id="show_reward_badge" {% if settings.show_reward_badge %}checked{% endif %}>
+            <label class="form-check-label" for="show_reward_badge">Show reward badge</label>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Staff permissions -->
+    <div class="col-12 col-lg-6">
+      <div class="card border-0 shadow-sm h-100" style="border-radius: 22px;">
+        <div class="card-body p-4">
+          <h2 class="h5 mb-3">Staff Permissions</h2>
+
+          <div class="form-check mb-2">
+            <input class="form-check-input" type="checkbox" name="staff_can_scan" id="staff_can_scan" {% if settings.staff_can_scan %}checked{% endif %}>
+            <label class="form-check-label" for="staff_can_scan">Staff can scan QR codes</label>
+          </div>
+
+          <div class="form-check mb-2">
+            <input class="form-check-input" type="checkbox" name="staff_can_add_stamp" id="staff_can_add_stamp" {% if settings.staff_can_add_stamp %}checked{% endif %}>
+            <label class="form-check-label" for="staff_can_add_stamp">Staff can add loyalty progress</label>
+          </div>
+
+          <div class="form-check mb-2">
+            <input class="form-check-input" type="checkbox" name="staff_can_redeem" id="staff_can_redeem" {% if settings.staff_can_redeem %}checked{% endif %}>
+            <label class="form-check-label" for="staff_can_redeem">Staff can redeem rewards</label>
+          </div>
+
+          <div class="form-check mb-2">
+            <input class="form-check-input" type="checkbox" name="staff_can_reset_loyalty" id="staff_can_reset_loyalty" {% if settings.staff_can_reset_loyalty %}checked{% endif %}>
+            <label class="form-check-label" for="staff_can_reset_loyalty">Staff can reset loyalty</label>
+          </div>
+
+          <div class="form-check">
+            <input class="form-check-input" type="checkbox" name="staff_can_change_password" id="staff_can_change_password" {% if settings.staff_can_change_password %}checked{% endif %}>
+            <label class="form-check-label" for="staff_can_change_password">Managers can change staff passwords</label>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Customer behaviour -->
+    <div class="col-12 col-lg-6">
+      <div class="card border-0 shadow-sm h-100" style="border-radius: 22px;">
+        <div class="card-body p-4">
+          <h2 class="h5 mb-3">Customer Behaviour</h2>
+
+          <div class="form-check mb-2">
+            <input class="form-check-input" type="checkbox" name="allow_multi_cafe_cards" id="allow_multi_cafe_cards" {% if settings.allow_multi_cafe_cards %}checked{% endif %}>
+            <label class="form-check-label" for="allow_multi_cafe_cards">Allow multi-cafe cards</label>
+          </div>
+
+          <div class="form-check mb-2">
+            <input class="form-check-input" type="checkbox" name="auto_create_card_on_first_scan" id="auto_create_card_on_first_scan" {% if settings.auto_create_card_on_first_scan %}checked{% endif %}>
+            <label class="form-check-label" for="auto_create_card_on_first_scan">Auto-create card on first scan</label>
+          </div>
+
+          <div class="form-check mb-2">
+            <input class="form-check-input" type="checkbox" name="show_customer_history" id="show_customer_history" {% if settings.show_customer_history %}checked{% endif %}>
+            <label class="form-check-label" for="show_customer_history">Show customer history</label>
+          </div>
+
+          <div class="form-check">
+            <input class="form-check-input" type="checkbox" name="enable_notifications" id="enable_notifications" {% if settings.enable_notifications %}checked{% endif %}>
+            <label class="form-check-label" for="enable_notifications">Enable notifications</label>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Invite settings -->
+    <div class="col-12 col-lg-6">
+      <div class="card border-0 shadow-sm h-100" style="border-radius: 22px;">
+        <div class="card-body p-4">
+          <h2 class="h5 mb-3">Invite Settings</h2>
+
+          <div class="mb-3">
+            <label class="form-label">Invite Expiry (days)</label>
+            <input type="number" class="form-control" name="invite_expiry_days" min="1" value="{{ settings.invite_expiry_days }}">
+          </div>
+
+          <div class="mb-3">
+            <label class="form-label">Default Invite Role</label>
+            <select class="form-select" name="default_invite_role">
+              <option value="staff" {% if settings.default_invite_role == 'staff' %}selected{% endif %}>Staff</option>
+              <option value="manager" {% if settings.default_invite_role == 'manager' %}selected{% endif %}>Manager</option>
+            </select>
+          </div>
+
+          <div class="form-check">
+            <input class="form-check-input" type="checkbox" name="allow_manager_invites" id="allow_manager_invites" {% if settings.allow_manager_invites %}checked{% endif %}>
+            <label class="form-check-label" for="allow_manager_invites">Allow managers to create invites</label>
+          </div>
+        </div>
       </div>
     </div>
 
   </div>
-</div>
+
+  <div class="mt-4">
+    <button class="btn btn-primary btn-lg" type="submit">Save Settings</button>
+  </div>
+</form>
+
+<script>
+  const loyaltyTypeSelect = document.getElementById("loyaltyTypeSelect");
+  const stampFields = document.getElementById("stampFields");
+  const pointsFields = document.getElementById("pointsFields");
+
+  function updateLoyaltyFields() {
+    const mode = loyaltyTypeSelect.value;
+    if (mode === "points") {
+      stampFields.style.display = "none";
+      pointsFields.style.display = "block";
+    } else {
+      stampFields.style.display = "block";
+      pointsFields.style.display = "none";
+    }
+  }
+
+  loyaltyTypeSelect.addEventListener("change", updateLoyaltyFields);
+  updateLoyaltyFields();
+</script>
 
 {% endblock %}

@@ -1,41 +1,40 @@
 {% extends "base.html" %}
 {% block content %}
 
-<h1 class="h4 mb-2">Staff & Managers</h1>
-<p class="text-muted mb-4">
-  Cafe: <strong>{{ active_cafe.name }}</strong>
-</p>
+<div class="mb-4">
+  <h1 class="h4 mb-1">Staff Management</h1>
+  <p class="text-muted mb-0">
+    Manage staff members and invites for <strong>{{ active_cafe.name }}</strong>.
+  </p>
+</div>
 
 <div class="row g-4">
 
-  <!-- Add staff -->
-  <div class="col-lg-5">
-    <div class="card shadow-sm">
+  <!-- Add Existing Staff -->
+  <div class="col-lg-6">
+    <div class="card shadow-sm border-0" style="border-radius:20px;">
       <div class="card-body">
 
-        <h2 class="h6">Add Staff / Manager</h2>
-        <p class="text-muted" style="font-size:0.95rem;">
-          Enter a username or email of an existing user.
-        </p>
+        <h5 class="mb-3">Add Existing User</h5>
 
         <form method="post" action="{{ url_for('manager_staff_add') }}">
           <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
 
           <div class="mb-3">
             <label class="form-label">Username or Email</label>
-            <input class="form-control" name="identifier" placeholder="e.g. sam or sam@email.com" required>
+            <input class="form-control" name="identifier" required>
           </div>
 
           <div class="mb-3">
             <label class="form-label">Role</label>
             <select class="form-select" name="role">
-              <option value="staff" selected>Staff</option>
+              <option value="staff">Staff</option>
               <option value="manager">Manager</option>
             </select>
           </div>
 
-          <button class="btn btn-primary w-100" type="submit">
-            Add / Update
+          <button class="btn btn-primary w-100">
+            Add Staff Member
           </button>
         </form>
 
@@ -43,113 +42,193 @@
     </div>
   </div>
 
-  <!-- Current members -->
-  <div class="col-lg-7">
-    <div class="card shadow-sm">
+  <!-- Create Invite -->
+  <div class="col-lg-6">
+    <div class="card shadow-sm border-0" style="border-radius:20px;">
       <div class="card-body">
 
-        <h2 class="h6">Current Members</h2>
+        <h5 class="mb-3">Create Invite</h5>
 
-        {% if rows and rows|length > 0 %}
-          <div class="table-responsive">
-            <table class="table table-sm align-middle">
-              <thead>
-                <tr>
-                  <th>User</th>
-                  <th>Role</th>
-                  <th>Active</th>
-                  <th style="width: 420px;"></th>
-                </tr>
-              </thead>
-              <tbody>
+        <form method="post" action="{{ url_for('manager_create_invite') }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
 
-                {% for u, m in rows %}
-                  <tr>
-                    <td>
-                      <strong>{{ u.username }}</strong><br>
-                      <span class="text-muted">{{ u.email }}</span>
-                    </td>
-
-                    <td>
-                      <span class="badge bg-info text-dark">{{ m.role }}</span>
-                    </td>
-
-                    <td>
-                      {% if m.is_active %}
-                        <span class="badge bg-success">Yes</span>
-                      {% else %}
-                        <span class="badge bg-secondary">No</span>
-                      {% endif %}
-                    </td>
-
-                    <td class="text-end">
-
-                      <div class="d-flex flex-wrap gap-2 justify-content-end">
-
-                        <!-- Change role -->
-                        <form method="post" action="{{ url_for('manager_staff_update') }}" class="d-inline">
-                          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-                          <input type="hidden" name="action" value="set_role">
-                          <input type="hidden" name="member_id" value="{{ m.id }}">
-                          <div class="input-group input-group-sm">
-                            <select name="role" class="form-select">
-                              <option value="staff" {% if m.role=='staff' %}selected{% endif %}>Staff</option>
-                              <option value="manager" {% if m.role=='manager' %}selected{% endif %}>Manager</option>
-                            </select>
-                            <button class="btn btn-outline-primary">
-                              Save
-                            </button>
-                          </div>
-                        </form>
-
-                        <!-- Change password -->
-                        <form method="post" action="{{ url_for('manager_staff_set_password') }}" class="d-inline">
-                          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-                          <input type="hidden" name="member_id" value="{{ m.id }}">
-                          <div class="input-group input-group-sm">
-                            <input type="password"
-                                   name="new_password"
-                                   class="form-control"
-                                   minlength="8"
-                                   placeholder="New password (8+)"
-                                   required>
-                            <button class="btn btn-outline-warning"
-                                    onclick="return confirm('Change password for {{ u.username }}?');">
-                              Set
-                            </button>
-                          </div>
-                        </form>
-
-                        <!-- Remove -->
-                        <form method="post" action="{{ url_for('manager_staff_update') }}" class="d-inline">
-                          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-                          <input type="hidden" name="action" value="deactivate">
-                          <input type="hidden" name="member_id" value="{{ m.id }}">
-                          <button class="btn btn-sm btn-outline-danger"
-                                  onclick="return confirm('Remove {{ u.username }} from this cafe?');">
-                            Remove
-                          </button>
-                        </form>
-
-                      </div>
-
-                    </td>
-                  </tr>
-                {% endfor %}
-
-              </tbody>
-            </table>
+          <div class="mb-3">
+            <label class="form-label">Email</label>
+            <input class="form-control" name="email" type="email" required>
           </div>
-        {% else %}
-          <div class="alert alert-info mb-0">
-            No staff/managers have been added yet.
+
+          <div class="mb-3">
+            <label class="form-label">Role</label>
+            <select class="form-select" name="role">
+              <option value="staff">Staff</option>
+              <option value="manager">Manager</option>
+            </select>
           </div>
-        {% endif %}
+
+          <button class="btn btn-success w-100">
+            Create Invite Link
+          </button>
+        </form>
 
       </div>
     </div>
   </div>
 
+</div>
+
+
+<!-- Staff List -->
+<div class="card shadow-sm border-0 mt-4" style="border-radius:20px;">
+  <div class="card-body">
+
+    <h5 class="mb-3">Current Staff</h5>
+
+    {% if rows %}
+    <div class="table-responsive">
+      <table class="table align-middle">
+
+        <thead>
+          <tr>
+            <th>User</th>
+            <th>Email</th>
+            <th>Role</th>
+            <th width="280">Actions</th>
+          </tr>
+        </thead>
+
+        <tbody>
+
+        {% for user, member in rows %}
+        <tr>
+
+          <td>{{ user.username }}</td>
+
+          <td>{{ user.email }}</td>
+
+          <td>
+            <form method="post" action="{{ url_for('manager_staff_update') }}" class="d-flex gap-2">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+              <input type="hidden" name="member_id" value="{{ member.id }}">
+              <input type="hidden" name="action" value="set_role">
+
+              <select class="form-select form-select-sm" name="role">
+                <option value="staff" {% if member.role == "staff" %}selected{% endif %}>Staff</option>
+                <option value="manager" {% if member.role == "manager" %}selected{% endif %}>Manager</option>
+              </select>
+
+              <button class="btn btn-sm btn-primary">
+                Update
+              </button>
+            </form>
+          </td>
+
+          <td class="d-flex flex-wrap gap-2">
+
+            <!-- Remove -->
+            <form method="post" action="{{ url_for('manager_staff_update') }}">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+              <input type="hidden" name="member_id" value="{{ member.id }}">
+              <input type="hidden" name="action" value="deactivate">
+
+              <button class="btn btn-sm btn-danger">
+                Remove
+              </button>
+            </form>
+
+            <!-- Reset Password -->
+            <form method="post" action="{{ url_for('manager_staff_set_password') }}" class="d-flex gap-1">
+
+              <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+              <input type="hidden" name="member_id" value="{{ member.id }}">
+
+              <input
+                type="password"
+                name="new_password"
+                class="form-control form-control-sm"
+                placeholder="New password"
+                minlength="8"
+                required
+              >
+
+              <button class="btn btn-sm btn-warning">
+                Reset
+              </button>
+
+            </form>
+
+          </td>
+
+        </tr>
+        {% endfor %}
+
+        </tbody>
+
+      </table>
+    </div>
+    {% else %}
+
+    <p class="text-muted">No staff members yet.</p>
+
+    {% endif %}
+
+  </div>
+</div>
+
+
+<!-- Active Invites -->
+<div class="card shadow-sm border-0 mt-4" style="border-radius:20px;">
+  <div class="card-body">
+
+    <h5 class="mb-3">Active Invites</h5>
+
+    {% if invites %}
+
+    <div class="table-responsive">
+      <table class="table align-middle">
+
+        <thead>
+          <tr>
+            <th>Email</th>
+            <th>Role</th>
+            <th>Expires</th>
+            <th>Invite Link</th>
+          </tr>
+        </thead>
+
+        <tbody>
+
+        {% for invite in invites %}
+        <tr>
+
+          <td>{{ invite.email }}</td>
+
+          <td>{{ invite.role }}</td>
+
+          <td>{{ invite.expires_at }}</td>
+
+          <td>
+            <input
+              class="form-control"
+              value="{{ request.url_root }}invite/{{ invite.token }}"
+              onclick="this.select()"
+              readonly
+            >
+          </td>
+
+        </tr>
+        {% endfor %}
+
+        </tbody>
+      </table>
+    </div>
+
+    {% else %}
+
+    <p class="text-muted">No active invites.</p>
+
+    {% endif %}
+
+  </div>
 </div>
 
 {% endblock %}

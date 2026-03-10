@@ -39,6 +39,7 @@ def slugify(name: str) -> str:
 def ensure_cafe_settings(cafe: Cafe) -> CafeSettings:
     if cafe.settings:
         return cafe.settings
+
     settings = CafeSettings(cafe_id=cafe.id)
     db.session.add(settings)
     db.session.commit()
@@ -60,6 +61,67 @@ def ensure_loyalty_card(user: User, cafe: Cafe) -> LoyaltyCard:
     return card
 
 
+def get_loyalty_progress(card: LoyaltyCard, settings: CafeSettings) -> dict:
+    if settings.loyalty_type == "points":
+        required = max(settings.points_required, 1)
+        current = card.points_balance
+        progress = min(100, (current * 100) / required)
+        remaining = max(required - current, 0)
+        return {
+            "mode": "points",
+            "current": current,
+            "required": required,
+            "progress": progress,
+            "remaining": remaining,
+            "unit_label": "points",
+        }
+
+    required = max(settings.stamps_required, 1)
+    current = card.stamp_count
+    progress = min(100, (current * 100) / required)
+    remaining = max(required - current, 0)
+    return {
+        "mode": "stamps",
+        "current": current,
+        "required": required,
+        "progress": progress,
+        "remaining": remaining,
+        "unit_label": "stamps",
+    }
+
+
+def apply_loyalty_increment(card: LoyaltyCard, settings: CafeSettings) -> tuple[int, int]:
+    """
+    Returns (stamp_delta, points_delta)
+    """
+    if card.reward_available:
+        return (0, 0)
+
+    if settings.loyalty_type == "points":
+        delta = max(settings.points_per_purchase, 1)
+        card.points_balance += delta
+        if card.points_balance >= settings.points_required:
+            card.points_balance = settings.points_required
+            card.reward_available = True
+        return (0, delta)
+
+    card.stamp_count += 1
+    if card.stamp_count >= settings.stamps_required:
+        card.stamp_count = settings.stamps_required
+        card.reward_available = True
+    return (1, 0)
+
+
+def reset_loyalty(card: LoyaltyCard, settings: CafeSettings) -> None:
+    if settings.loyalty_type == "points":
+        card.points_balance = 0
+    else:
+        card.stamp_count = 0
+    card.reward_available = False
+    card.last_redeem_at = datetime.utcnow()
+    card.last_activity_at = datetime.utcnow()
+
+
 def log_activity(
     *,
     cafe_id: int,
@@ -67,7 +129,8 @@ def log_activity(
     target_user_id: int,
     actor_user_id: int | None = None,
     stamp_delta: int = 0,
-    note: str | None = None
+    points_delta: int = 0,
+    note: str | None = None,
 ) -> None:
     row = ActivityLog(
         cafe_id=cafe_id,
@@ -75,6 +138,7 @@ def log_activity(
         target_user_id=target_user_id,
         action=action,
         stamp_delta=stamp_delta,
+        points_delta=points_delta,
         note=note,
     )
     db.session.add(row)
@@ -101,7 +165,7 @@ def create_app():
     app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", "dev-secret-change-me")
     app.config["SQLALCHEMY_DATABASE_URI"] = os.environ.get(
         "DATABASE_URL",
-        "sqlite:///coffee_loyalty_multi_v2.db"
+        "sqlite:///coffee_loyalty_multi_v3.db"
     )
     app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
     app.config["SESSION_COOKIE_HTTPONLY"] = True
@@ -266,7 +330,7 @@ def create_app():
         return redirect(request.referrer or url_for("login"))
 
     # ---------------------------
-    # Home / auth
+    # Public / auth
     # ---------------------------
     @app.get("/")
     def index():
@@ -312,7 +376,7 @@ def create_app():
                 user.id,
                 None,
                 "Welcome",
-                "Your account is ready. Show your QR code at a cafe to start earning stamps."
+                "Your account is ready. Show your QR code at a cafe to start earning loyalty rewards."
             )
 
             flash("Account created.", "success")
@@ -356,6 +420,87 @@ def create_app():
         return redirect(url_for("index"))
 
     # ---------------------------
+    # Invite acceptance
+    # ---------------------------
+    @app.route("/invite/<token>", methods=["GET", "POST"])
+    def invite_accept(token: str):
+        invite = StaffInvite.query.filter_by(token=token, is_active=True).first()
+        if not invite:
+            flash("Invite not found or no longer active.", "danger")
+            return redirect(url_for("login"))
+
+        if invite.expires_at and invite.expires_at < datetime.utcnow():
+            flash("This invite has expired.", "danger")
+            return redirect(url_for("login"))
+
+        cafe = db.session.get(Cafe, invite.cafe_id)
+        if not cafe or not cafe.is_active:
+            flash("This cafe is not available.", "danger")
+            return redirect(url_for("login"))
+
+        if request.method == "POST":
+            require_csrf()
+
+            email = (request.form.get("email") or "").strip().lower()
+            username = (request.form.get("username") or "").strip()
+            password = request.form.get("password") or ""
+
+            if email != invite.email:
+                flash("Email must match the invite email.", "danger")
+                return redirect(url_for("invite_accept", token=token))
+
+            user = User.query.filter_by(email=email).first()
+
+            if not user:
+                if not username or len(password) < 8:
+                    flash("New account requires username and 8+ character password.", "danger")
+                    return redirect(url_for("invite_accept", token=token))
+                if User.query.filter_by(username=username).first():
+                    flash("Username already taken.", "danger")
+                    return redirect(url_for("invite_accept", token=token))
+
+                user = User(
+                    username=username,
+                    email=email,
+                    password_hash=generate_password_hash(password),
+                    is_active=True,
+                    is_global_admin=False,
+                )
+                db.session.add(user)
+                db.session.flush()
+
+            mem = CafeMember.query.filter_by(user_id=user.id, cafe_id=cafe.id).first()
+            if not mem:
+                mem = CafeMember(
+                    user_id=user.id,
+                    cafe_id=cafe.id,
+                    role=invite.role,
+                    is_active=True,
+                )
+                db.session.add(mem)
+            else:
+                mem.role = invite.role
+                mem.is_active = True
+
+            invite.is_active = False
+            invite.accepted_at = datetime.utcnow()
+
+            db.session.commit()
+
+            log_activity(
+                cafe_id=cafe.id,
+                actor_user_id=user.id,
+                target_user_id=user.id,
+                action="invite_accepted",
+                note=f"Accepted invite as {invite.role}"
+            )
+
+            flash(f"You’ve joined {cafe.name} as {invite.role}.", "success")
+            return redirect(url_for("login"))
+
+        return render_template("invite_accept.html", invite=invite, cafe=cafe)
+
+    # ---------------------------
     # Notifications
     # ---------------------------
     @app.post("/notifications/<int:notification_id>/read")
@@ -371,7 +516,7 @@ def create_app():
         return redirect(request.referrer or url_for("my_qr"))
 
     # ---------------------------
-    # QR / customer pages
+    # Customer pages
     # ---------------------------
     @app.get("/my-qr")
     @require_login
@@ -397,7 +542,8 @@ def create_app():
             if not cafe or not cafe.is_active:
                 continue
             settings = ensure_cafe_settings(cafe)
-            rows.append((cafe, card, settings))
+            progress = get_loyalty_progress(card, settings)
+            rows.append((cafe, card, settings, progress))
 
         return render_template("my_stamps.html", rows=rows)
 
@@ -406,27 +552,6 @@ def create_app():
     def select_cafe():
         cafes = cafes_accessible_to_user(current_user())
         return render_template("select_cafe.html", cafes=cafes)
-
-    @app.get("/card/status")
-    @require_login
-    @require_cafe_selected
-    def card_status():
-        u = current_user()
-        cafe = current_cafe()
-        settings = ensure_cafe_settings(cafe)
-        card = ensure_loyalty_card(u, cafe)
-
-        progress = 0
-        if settings.stamps_required > 0:
-            progress = min(100, (card.stamp_count * 100) / settings.stamps_required)
-
-        return jsonify({
-            "stamp_count": card.stamp_count,
-            "stamps_required": settings.stamps_required,
-            "reward_available": card.reward_available,
-            "reward_name": settings.reward_name,
-            "progress": progress
-        })
 
     @app.post("/select-cafe")
     @require_login
@@ -475,7 +600,31 @@ def create_app():
         cafe = current_cafe()
         settings = ensure_cafe_settings(cafe)
         card = ensure_loyalty_card(u, cafe)
-        return render_template("card.html", card=card, settings=settings)
+        progress = get_loyalty_progress(card, settings)
+        return render_template("card.html", card=card, settings=settings, progress=progress)
+
+    @app.get("/card/status")
+    @require_login
+    @require_cafe_selected
+    def card_status():
+        u = current_user()
+        cafe = current_cafe()
+        settings = ensure_cafe_settings(cafe)
+        card = ensure_loyalty_card(u, cafe)
+        progress = get_loyalty_progress(card, settings)
+
+        return jsonify({
+            "loyalty_type": settings.loyalty_type,
+            "current": progress["current"],
+            "required": progress["required"],
+            "remaining": progress["remaining"],
+            "progress": progress["progress"],
+            "unit_label": progress["unit_label"],
+            "reward_available": card.reward_available,
+            "reward_name": settings.reward_name,
+            "stamp_count": card.stamp_count,
+            "points_balance": card.points_balance,
+        })
 
     @app.get("/qr/<token>")
     @require_login
@@ -491,7 +640,7 @@ def create_app():
         return send_file(buf, mimetype="image/png")
 
     # ---------------------------
-    # Staff scanner / actions
+    # Staff
     # ---------------------------
     @app.get("/staff")
     @require_login
@@ -508,6 +657,8 @@ def create_app():
     @require_role_in_cafe("staff", "manager")
     def staff_lookup():
         cafe = current_cafe()
+        settings = ensure_cafe_settings(cafe)
+
         token = (request.args.get("token") or "").strip()
         if not token:
             return jsonify({"ok": False, "error": "Missing token"}), 400
@@ -516,17 +667,33 @@ def create_app():
         if not u:
             return jsonify({"ok": False, "error": "User not found"}), 404
 
-        settings = ensure_cafe_settings(cafe)
-        card = ensure_loyalty_card(u, cafe)
+        if settings.auto_create_card_on_first_scan:
+            card = ensure_loyalty_card(u, cafe)
+        else:
+            card = LoyaltyCard.query.filter_by(user_id=u.id, cafe_id=cafe.id).first()
+            if not card:
+                return jsonify({"ok": False, "error": "Customer is not enrolled at this cafe"}), 404
+
+        progress = get_loyalty_progress(card, settings)
 
         return jsonify({
             "ok": True,
-            "user": {"id": u.id, "username": u.username, "email": u.email},
+            "user": {
+                "id": u.id,
+                "username": u.username,
+                "email": u.email
+            },
             "card": {
-                "stamps": card.stamp_count,
                 "reward_available": bool(card.reward_available),
-                "stamps_required": settings.stamps_required,
                 "reward_name": settings.reward_name,
+                "loyalty_type": settings.loyalty_type,
+                "stamp_count": card.stamp_count,
+                "points_balance": card.points_balance,
+                "current": progress["current"],
+                "required": progress["required"],
+                "remaining": progress["remaining"],
+                "progress": progress["progress"],
+                "unit_label": progress["unit_label"],
             }
         })
 
@@ -546,7 +713,7 @@ def create_app():
             return redirect(url_for("staff_home"))
 
         if not settings.staff_can_add_stamp and not is_global_admin(actor):
-            flash("Stamp adding is disabled for staff at this cafe.", "danger")
+            flash("Adding loyalty progress is disabled for staff at this cafe.", "danger")
             return redirect(url_for("staff_home"))
 
         u = User.query.filter_by(qr_token=token, is_active=True).first()
@@ -554,40 +721,54 @@ def create_app():
             flash("User not found.", "danger")
             return redirect(url_for("staff_home"))
 
-        card = ensure_loyalty_card(u, cafe)
+        if settings.auto_create_card_on_first_scan:
+            card = ensure_loyalty_card(u, cafe)
+        else:
+            card = LoyaltyCard.query.filter_by(user_id=u.id, cafe_id=cafe.id).first()
+            if not card:
+                flash("Customer is not enrolled at this cafe.", "danger")
+                return redirect(url_for("staff_home"))
 
-        if card.reward_available:
+        stamp_delta, points_delta = apply_loyalty_increment(card, settings)
+        if stamp_delta == 0 and points_delta == 0 and card.reward_available:
             flash("Reward already available — redeem first.", "warning")
             return redirect(url_for("staff_home"))
-
-        if card.stamp_count < settings.stamps_required:
-            card.stamp_count += 1
-            if card.stamp_count >= settings.stamps_required:
-                card.stamp_count = settings.stamps_required
-                card.reward_available = True
 
         now = datetime.utcnow()
         card.last_scan_at = now
         card.last_activity_at = now
         db.session.commit()
 
+        action = "points_added" if settings.loyalty_type == "points" else "stamp_added"
+        note = (
+            f"{actor.username} added {points_delta} points"
+            if settings.loyalty_type == "points"
+            else f"{actor.username} added a stamp"
+        )
+
         log_activity(
             cafe_id=cafe.id,
             actor_user_id=actor.id,
             target_user_id=u.id,
-            action="stamp_added",
-            stamp_delta=1,
-            note=f"{actor.username} added a stamp"
+            action=action,
+            stamp_delta=stamp_delta,
+            points_delta=points_delta,
+            note=note
         )
 
-        create_notification(
-            u.id,
-            cafe.id,
-            "Stamp added",
-            f"You received a stamp at {cafe.name}. You now have {card.stamp_count}/{settings.stamps_required}."
-        )
+        if settings.enable_notifications:
+            progress = get_loyalty_progress(card, settings)
+            create_notification(
+                u.id,
+                cafe.id,
+                "Loyalty updated",
+                f"You now have {progress['current']}/{progress['required']} {progress['unit_label']} at {cafe.name}."
+            )
 
-        flash(f"Stamp added to {u.username}.", "success")
+        if settings.loyalty_type == "points":
+            flash(f"Added {points_delta} points to {u.username}.", "success")
+        else:
+            flash(f"Stamp added to {u.username}.", "success")
         return redirect(url_for("staff_home"))
 
     @app.post("/staff/redeem-by-token")
@@ -620,11 +801,7 @@ def create_app():
             flash("No reward available yet.", "warning")
             return redirect(url_for("staff_home"))
 
-        card.stamp_count = 0
-        card.reward_available = False
-        now = datetime.utcnow()
-        card.last_redeem_at = now
-        card.last_activity_at = now
+        reset_loyalty(card, settings)
         db.session.commit()
 
         log_activity(
@@ -632,16 +809,16 @@ def create_app():
             actor_user_id=actor.id,
             target_user_id=u.id,
             action="reward_redeemed",
-            stamp_delta=0,
             note=f"{settings.reward_name} redeemed"
         )
 
-        create_notification(
-            u.id,
-            cafe.id,
-            "Reward redeemed",
-            f"Your {settings.reward_name} was redeemed at {cafe.name}."
-        )
+        if settings.enable_notifications:
+            create_notification(
+                u.id,
+                cafe.id,
+                "Reward redeemed",
+                f"Your {settings.reward_name} was redeemed at {cafe.name}."
+            )
 
         flash(f"Redeemed {settings.reward_name} for {u.username}.", "success")
         return redirect(url_for("staff_home"))
@@ -652,12 +829,12 @@ def create_app():
     @require_role_in_cafe("staff", "manager")
     def staff_search_json():
         cafe = current_cafe()
+        settings = ensure_cafe_settings(cafe)
         q = (request.args.get("q") or "").strip()
 
         if len(q) < 2:
             return jsonify([])
 
-        settings = ensure_cafe_settings(cafe)
         users = (
             User.query.filter(User.is_active == True)  # noqa: E712
             .filter((User.username.ilike(f"{q}%")) | (User.email.ilike(f"{q}%")))
@@ -669,21 +846,33 @@ def create_app():
         payload = []
         for u in users:
             card = LoyaltyCard.query.filter_by(user_id=u.id, cafe_id=cafe.id).first()
-            stamps = card.stamp_count if card else 0
-            reward = bool(card.reward_available) if card else False
+            if not card and settings.auto_create_card_on_first_scan:
+                current = 0
+                required = settings.points_required if settings.loyalty_type == "points" else settings.stamps_required
+                reward_available = False
+            elif not card:
+                continue
+            else:
+                progress = get_loyalty_progress(card, settings)
+                current = progress["current"]
+                required = progress["required"]
+                reward_available = card.reward_available
+
             payload.append({
                 "username": u.username,
                 "email": u.email,
-                "stamps": stamps,
-                "reward_available": reward,
-                "stamps_required": settings.stamps_required,
+                "current": current,
+                "required": required,
+                "reward_available": reward_available,
                 "reward_name": settings.reward_name,
+                "loyalty_type": settings.loyalty_type,
                 "qr_token": u.qr_token,
             })
+
         return jsonify(payload)
 
     # ---------------------------
-    # Manager dashboard / staff / settings
+    # Manager
     # ---------------------------
     @app.get("/manager")
     @require_login
@@ -705,20 +894,29 @@ def create_app():
             u = db.session.get(User, c.user_id)
             if not u or u.is_global_admin:
                 continue
-            rows.append((u, c))
+            progress = get_loyalty_progress(c, settings)
+            rows.append((u, c, progress))
 
-        # Stats
         total_customers = LoyaltyCard.query.filter_by(cafe_id=cafe.id).count()
         rewards_ready = LoyaltyCard.query.filter_by(cafe_id=cafe.id, reward_available=True).count()
 
         today = datetime.utcnow().date()
-        stamps_today = (
-            db.session.query(func.count(ActivityLog.id))
-            .filter(ActivityLog.cafe_id == cafe.id)
-            .filter(ActivityLog.action == "stamp_added")
-            .filter(func.date(ActivityLog.created_at) == today)
-            .scalar()
-        ) or 0
+        if settings.loyalty_type == "points":
+            activity_today = (
+                db.session.query(func.coalesce(func.sum(ActivityLog.points_delta), 0))
+                .filter(ActivityLog.cafe_id == cafe.id)
+                .filter(ActivityLog.action == "points_added")
+                .filter(func.date(ActivityLog.created_at) == today)
+                .scalar()
+            ) or 0
+        else:
+            activity_today = (
+                db.session.query(func.count(ActivityLog.id))
+                .filter(ActivityLog.cafe_id == cafe.id)
+                .filter(ActivityLog.action == "stamp_added")
+                .filter(func.date(ActivityLog.created_at) == today)
+                .scalar()
+            ) or 0
 
         recent_activity = (
             ActivityLog.query.filter_by(cafe_id=cafe.id)
@@ -733,7 +931,7 @@ def create_app():
             settings=settings,
             total_customers=total_customers,
             rewards_ready=rewards_ready,
-            stamps_today=stamps_today,
+            activity_today=activity_today,
             recent_activity=recent_activity,
         )
 
@@ -745,6 +943,7 @@ def create_app():
         require_csrf()
         cafe = current_cafe()
         actor = current_user()
+        settings = ensure_cafe_settings(cafe)
 
         user_id = request.form.get("user_id")
         if not user_id or not user_id.isdigit():
@@ -756,20 +955,12 @@ def create_app():
             flash("User not found.", "danger")
             return redirect(url_for("manager_dashboard"))
 
-        settings = ensure_cafe_settings(cafe)
-        membership = get_membership(actor, cafe)
-        if membership and membership.role == "staff" and not settings.staff_can_reset_loyalty:
-            flash("Staff cannot reset loyalty here.", "danger")
-            return redirect(url_for("manager_dashboard"))
-
         card = LoyaltyCard.query.filter_by(user_id=u.id, cafe_id=cafe.id).first()
         if not card:
             flash("No loyalty card for this user at this cafe.", "warning")
             return redirect(url_for("manager_dashboard"))
 
-        card.stamp_count = 0
-        card.reward_available = False
-        card.last_activity_at = datetime.utcnow()
+        reset_loyalty(card, settings)
         db.session.commit()
 
         log_activity(
@@ -804,7 +995,7 @@ def create_app():
             rows.append((u, m))
 
         invites = (
-            StaffInvite.query.filter_by(cafe_id=cafe.id, is_active=True)
+            StaffInvite.query.filter_by(cafe_id=cafe.id)
             .order_by(StaffInvite.created_at.desc())
             .all()
         )
@@ -919,6 +1110,11 @@ def create_app():
     def manager_staff_set_password():
         require_csrf()
         cafe = current_cafe()
+        settings = ensure_cafe_settings(cafe)
+
+        if not settings.staff_can_change_password:
+            flash("Managers are not allowed to change staff passwords at this cafe.", "danger")
+            return redirect(url_for("manager_staff"))
 
         member_id = request.form.get("member_id", "")
         new_password = request.form.get("new_password") or ""
@@ -961,11 +1157,16 @@ def create_app():
     def manager_create_invite():
         require_csrf()
         cafe = current_cafe()
+        settings = ensure_cafe_settings(cafe)
+
+        if not settings.allow_manager_invites:
+            flash("Manager invites are disabled for this cafe.", "danger")
+            return redirect(url_for("manager_staff"))
 
         email = (request.form.get("email") or "").strip().lower()
-        role = (request.form.get("role") or "staff").strip().lower()
+        role = (request.form.get("role") or settings.default_invite_role).strip().lower()
         if role not in ("staff", "manager"):
-            role = "staff"
+            role = settings.default_invite_role
 
         if not email:
             flash("Email is required.", "danger")
@@ -976,7 +1177,7 @@ def create_app():
             created_by_user_id=current_user().id,
             email=email,
             role=role,
-            expires_at=datetime.utcnow() + timedelta(days=7),
+            expires_at=datetime.utcnow() + timedelta(days=max(settings.invite_expiry_days, 1)),
             is_active=True,
         )
         db.session.add(invite)
@@ -1023,15 +1224,68 @@ def create_app():
 
         settings = ensure_cafe_settings(cafe)
 
-        stamps_required = (request.form.get("stamps_required") or "").strip()
-        reward_name = (request.form.get("reward_name") or "").strip()
+        # cafe branding
+        cafe.logo_url = (request.form.get("logo_url") or "").strip() or None
+        cafe.accent_color = (request.form.get("accent_color") or cafe.accent_color).strip()
+        cafe.secondary_color = (request.form.get("secondary_color") or cafe.secondary_color).strip()
 
-        settings.stamps_required = int(stamps_required) if stamps_required.isdigit() else settings.stamps_required
-        settings.reward_name = reward_name or settings.reward_name
+        theme_mode = (request.form.get("theme_mode") or cafe.theme_mode).strip().lower()
+        if theme_mode in ("light", "dark", "coffee", "modern"):
+            cafe.theme_mode = theme_mode
+
+        card_style = (request.form.get("card_style") or cafe.card_style).strip().lower()
+        if card_style in ("rounded", "minimal", "bold"):
+            cafe.card_style = card_style
+
+        # settings
+        loyalty_type = (request.form.get("loyalty_type") or settings.loyalty_type).strip().lower()
+        if loyalty_type in ("stamps", "points"):
+            settings.loyalty_type = loyalty_type
+
+        stamps_required = (request.form.get("stamps_required") or "").strip()
+        points_required = (request.form.get("points_required") or "").strip()
+        points_per_purchase = (request.form.get("points_per_purchase") or "").strip()
+
+        if stamps_required.isdigit():
+            settings.stamps_required = max(int(stamps_required), 1)
+        if points_required.isdigit():
+            settings.points_required = max(int(points_required), 1)
+        if points_per_purchase.isdigit():
+            settings.points_per_purchase = max(int(points_per_purchase), 1)
+
+        reward_name = (request.form.get("reward_name") or "").strip()
+        if reward_name:
+            settings.reward_name = reward_name
+
+        welcome_message = (request.form.get("welcome_message") or "").strip()
+        if welcome_message:
+            settings.welcome_message = welcome_message
+
+        settings.show_qr_label = request.form.get("show_qr_label") == "on"
+        settings.show_stamp_numbers = request.form.get("show_stamp_numbers") == "on"
+        settings.show_progress_bar = request.form.get("show_progress_bar") == "on"
+        settings.show_reward_badge = request.form.get("show_reward_badge") == "on"
+
         settings.staff_can_scan = request.form.get("staff_can_scan") == "on"
         settings.staff_can_add_stamp = request.form.get("staff_can_add_stamp") == "on"
         settings.staff_can_redeem = request.form.get("staff_can_redeem") == "on"
         settings.staff_can_reset_loyalty = request.form.get("staff_can_reset_loyalty") == "on"
+        settings.staff_can_change_password = request.form.get("staff_can_change_password") == "on"
+
+        settings.allow_multi_cafe_cards = request.form.get("allow_multi_cafe_cards") == "on"
+        settings.auto_create_card_on_first_scan = request.form.get("auto_create_card_on_first_scan") == "on"
+        settings.show_customer_history = request.form.get("show_customer_history") == "on"
+        settings.enable_notifications = request.form.get("enable_notifications") == "on"
+
+        invite_expiry_days = (request.form.get("invite_expiry_days") or "").strip()
+        if invite_expiry_days.isdigit():
+            settings.invite_expiry_days = max(int(invite_expiry_days), 1)
+
+        settings.allow_manager_invites = request.form.get("allow_manager_invites") == "on"
+
+        default_invite_role = (request.form.get("default_invite_role") or settings.default_invite_role).strip().lower()
+        if default_invite_role in ("staff", "manager"):
+            settings.default_invite_role = default_invite_role
 
         db.session.commit()
         flash("Settings updated.", "success")
@@ -1064,9 +1318,11 @@ def create_app():
 
         if not slug:
             slug = slugify(cafe_name)
+
         if not re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", slug):
             flash("Slug must be lowercase letters/numbers with hyphens.", "danger")
             return redirect(url_for("admin_create_cafe"))
+
         if Cafe.query.filter_by(slug=slug).first():
             flash("Slug already used.", "danger")
             return redirect(url_for("admin_create_cafe"))
@@ -1079,6 +1335,7 @@ def create_app():
 
         if manager_email:
             manager_user = User.query.filter_by(email=manager_email).first()
+
             if not manager_user:
                 if not manager_username or len(manager_password) < 8:
                     flash("To create a new manager, provide username and 8+ char password.", "danger")

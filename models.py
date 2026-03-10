@@ -16,9 +16,12 @@ class Cafe(db.Model):
     is_active = db.Column(db.Boolean, nullable=False, default=True)
     created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
 
-    # Branding
+    # Branding / theme
     logo_url = db.Column(db.String(500), nullable=True)
-    accent_color = db.Column(db.String(20), nullable=False, default="#6f4e37")  # coffee brown
+    accent_color = db.Column(db.String(20), nullable=False, default="#6f4e37")
+    secondary_color = db.Column(db.String(20), nullable=False, default="#f5ede3")
+    theme_mode = db.Column(db.String(20), nullable=False, default="light")   # light | dark | coffee | modern
+    card_style = db.Column(db.String(20), nullable=False, default="rounded") # rounded | minimal | bold
 
     settings = db.relationship(
         "CafeSettings",
@@ -133,15 +136,42 @@ class CafeSettings(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     cafe_id = db.Column(db.Integer, db.ForeignKey("cafes.id"), unique=True, nullable=False, index=True)
 
-    # Loyalty
+    # Loyalty mode
+    loyalty_type = db.Column(db.String(20), nullable=False, default="stamps")  # stamps | points
+
+    # Stamp mode
     stamps_required = db.Column(db.Integer, nullable=False, default=9)
+
+    # Points mode
+    points_required = db.Column(db.Integer, nullable=False, default=100)
+    points_per_purchase = db.Column(db.Integer, nullable=False, default=10)
+
     reward_name = db.Column(db.String(80), nullable=False, default="Free Coffee")
+
+    # Display settings
+    show_qr_label = db.Column(db.Boolean, nullable=False, default=True)
+    show_stamp_numbers = db.Column(db.Boolean, nullable=False, default=True)
+    show_progress_bar = db.Column(db.Boolean, nullable=False, default=True)
+    show_reward_badge = db.Column(db.Boolean, nullable=False, default=True)
+    welcome_message = db.Column(db.String(255), nullable=False, default="Welcome back!")
 
     # Staff permissions
     staff_can_scan = db.Column(db.Boolean, nullable=False, default=True)
     staff_can_add_stamp = db.Column(db.Boolean, nullable=False, default=True)
     staff_can_redeem = db.Column(db.Boolean, nullable=False, default=True)
     staff_can_reset_loyalty = db.Column(db.Boolean, nullable=False, default=False)
+    staff_can_change_password = db.Column(db.Boolean, nullable=False, default=False)
+
+    # Customer behaviour
+    allow_multi_cafe_cards = db.Column(db.Boolean, nullable=False, default=True)
+    auto_create_card_on_first_scan = db.Column(db.Boolean, nullable=False, default=True)
+    show_customer_history = db.Column(db.Boolean, nullable=False, default=True)
+    enable_notifications = db.Column(db.Boolean, nullable=False, default=True)
+
+    # Invite settings
+    invite_expiry_days = db.Column(db.Integer, nullable=False, default=7)
+    allow_manager_invites = db.Column(db.Boolean, nullable=False, default=True)
+    default_invite_role = db.Column(db.String(20), nullable=False, default="staff")  # staff | manager
 
     updated_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -156,10 +186,16 @@ class LoyaltyCard(db.Model):
     user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False, index=True)
     cafe_id = db.Column(db.Integer, db.ForeignKey("cafes.id"), nullable=False, index=True)
 
-    stamp_count = db.Column(db.Integer, nullable=False, default=0)
+    # Shared loyalty state
     reward_available = db.Column(db.Boolean, nullable=False, default=False)
 
-    # Customer profile / history helpers
+    # Stamp mode
+    stamp_count = db.Column(db.Integer, nullable=False, default=0)
+
+    # Points mode
+    points_balance = db.Column(db.Integer, nullable=False, default=0)
+
+    # History helpers
     last_scan_at = db.Column(db.DateTime, nullable=True)
     last_redeem_at = db.Column(db.DateTime, nullable=True)
     last_activity_at = db.Column(db.DateTime, nullable=True)
@@ -175,30 +211,21 @@ class LoyaltyCard(db.Model):
 
 
 class ActivityLog(db.Model):
-    """
-    Used for:
-    - recent activity panel
-    - dashboard stats
-    - customer profile history
-    """
     __tablename__ = "activity_logs"
 
     id = db.Column(db.Integer, primary_key=True)
 
     cafe_id = db.Column(db.Integer, db.ForeignKey("cafes.id"), nullable=False, index=True)
-
-    # who did the action (staff/manager/admin), can be null for system events
     actor_user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=True, index=True)
-
-    # customer/user affected by the action
     target_user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False, index=True)
 
     action = db.Column(db.String(40), nullable=False, index=True)
     # examples:
-    # stamp_added, reward_redeemed, loyalty_reset, membership_added,
-    # membership_removed, password_changed, invite_created
+    # stamp_added, points_added, reward_redeemed, loyalty_reset,
+    # membership_added, membership_removed, password_changed, invite_created
 
     stamp_delta = db.Column(db.Integer, nullable=False, default=0)
+    points_delta = db.Column(db.Integer, nullable=False, default=0)
     note = db.Column(db.String(255), nullable=True)
 
     created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow, index=True)
@@ -240,9 +267,6 @@ class StaffInvite(db.Model):
 
 
 class Notification(db.Model):
-    """
-    Simple in-app banners/alerts for customers.
-    """
     __tablename__ = "notifications"
 
     id = db.Column(db.Integer, primary_key=True)

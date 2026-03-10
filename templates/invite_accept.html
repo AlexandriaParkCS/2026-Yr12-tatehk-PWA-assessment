@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% block content %}
+
+<div class="row justify-content-center">
+  <div class="col-12 col-md-8 col-lg-6">
+
+    <div class="card border-0 shadow-sm" style="border-radius: 22px;">
+      <div class="card-body p-4 p-md-5">
+
+        <div class="mb-4">
+          <h1 class="h4 mb-1">Accept Invite</h1>
+          <p class="text-muted mb-0">
+            You’ve been invited to join <strong>{{ cafe.name }}</strong> as <strong>{{ invite.role }}</strong>.
+          </p>
+        </div>
+
+        <div class="alert alert-info">
+          Invite email: <strong>{{ invite.email }}</strong><br>
+          Expires: <strong>{{ invite.expires_at }}</strong>
+        </div>
+
+        <form method="post" action="{{ url_for('invite_accept', token=invite.token) }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+
+          <div class="mb-3">
+            <label class="form-label">Email</label>
+            <input type="email" class="form-control" name="email" value="{{ invite.email }}" required>
+          </div>
+
+          <div class="mb-3">
+            <label class="form-label">Username</label>
+            <input type="text" class="form-control" name="username" placeholder="Only needed if creating a new account">
+          </div>
+
+          <div class="mb-4">
+            <label class="form-label">Password</label>
+            <input type="password" class="form-control" name="password" minlength="8" placeholder="Only needed if creating a new account">
+            <div class="form-text">
+              If you already have an account with this email, your existing account will be linked.
+            </div>
+          </div>
+
+          <button class="btn btn-primary w-100" type="submit">
+            Accept Invite
+          </button>
+        </form>
+
+      </div>
+    </div>
+
+  </div>
+</div>
+
+{% endblock %}
