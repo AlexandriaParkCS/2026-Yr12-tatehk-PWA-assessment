@@ -325,19 +325,22 @@ async function stopScanner() {
   }
 }
 
-startBtn.addEventListener("click", () => startScanner("environment"));
-flipBtn.addEventListener("click", () => {
-  const next = (usingFacingMode === "environment") ? "user" : "environment";
-  startScanner(next);
+startBtn.addEventListener("click", async () => {
+  if (transitioning || started) return;
+  await startScanner("environment");
 });
-stopBtn.addEventListener("click", () => stopScanner());
+flipBtn.addEventListener("click", async () => {
+  if (transitioning || !started) return;
+  const next = (usingFacingMode === "environment") ? "user" : "environment";
+  await startScanner(next);
+});
+flipBtn.addEventListener("click", async () => {
+  if (transitioning || !started) return;
+  const next = (usingFacingMode === "environment") ? "user" : "environment";
+  await startScanner(next);
+});
 
-const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
-if (!isIOS) {
-  startScanner("environment");
-} else {
-  camHint.textContent = "Tap Start Scanner";
-}
+camHint.textContent = "Tap Start Scanner";
 
 // ---- Search handling ----
 let searchTimer = null;
