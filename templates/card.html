@@ -1,6 +1,14 @@
 {% extends "base.html" %}
 {% block content %}
 
+{% set progress = 0 %}
+{% if settings.stamps_required > 0 %}
+  {% set progress = (card.stamp_count * 100) / settings.stamps_required %}
+{% endif %}
+{% if progress > 100 %}
+  {% set progress = 100 %}
+{% endif %}
+
 <div class="row justify-content-center">
   <div class="col-lg-6">
 
@@ -16,13 +24,24 @@
 
         <div class="my-4">
           <h2 class="h5">Stamps</h2>
-          <p class="display-6 mb-0">
+          <p class="display-6 mb-2">
             {{ card.stamp_count }} / {{ settings.stamps_required }}
           </p>
+
+          <div class="progress mb-3" style="height: 12px;">
+            <div
+              class="progress-bar"
+              role="progressbar"
+              style="width: {{ progress }}%;"></div>
+          </div>
 
           {% if card.reward_available %}
             <div class="alert alert-success mt-3">
               🎉 You have earned a {{ settings.reward_name }}!
+            </div>
+          {% else %}
+            <div class="text-muted" style="font-size:0.95rem;">
+              {{ settings.stamps_required - card.stamp_count }} more to go
             </div>
           {% endif %}
         </div>
