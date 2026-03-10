@@ -1,83 +1,163 @@
 {% extends "base.html" %}
 {% block content %}
 
-<div class="card shadow-sm">
-  <div class="card-body">
+<div class="d-flex justify-content-between align-items-start flex-wrap gap-3 mb-4">
+  <div>
+    <h1 class="h4 mb-1">Manager Dashboard</h1>
+    <p class="text-muted mb-0">
+      Cafe: <strong>{{ active_cafe.name }}</strong>
+    </p>
+  </div>
 
-    <div class="d-flex justify-content-between align-items-start gap-3 flex-wrap">
-      <div>
-        <h1 class="h4 mb-1">Manager Dashboard</h1>
-        <div class="text-muted">
-          Cafe: <strong>{{ active_cafe.name }}</strong>
-        </div>
-      </div>
+  <div class="text-muted" style="font-size:0.95rem;">
+    Reward: <strong>{{ settings.reward_name }}</strong> •
+    {{ settings.stamps_required }} stamps required
+  </div>
+</div>
 
-      <div class="text-muted" style="font-size:0.95rem;">
-        Reward: <strong>{{ settings.reward_name }}</strong> •
-        {{ settings.stamps_required }} stamps
+<!-- Stats -->
+<div class="row g-3 mb-4">
+  <div class="col-12 col-sm-6 col-lg-4">
+    <div class="card shadow-sm h-100">
+      <div class="card-body">
+        <div class="text-muted small mb-1">Total Customers</div>
+        <div class="display-6 fw-semibold">{{ total_customers }}</div>
       </div>
     </div>
-
-    <hr>
-
-    {% if rows|length == 0 %}
-      <div class="alert alert-info mb-0">
-        No customers yet for this cafe (no loyalty cards created).
-      </div>
-    {% else %}
-      <div class="table-responsive">
-        <table class="table table-sm align-middle">
-          <thead>
-            <tr>
-              <th>Customer</th>
-              <th>Stamps</th>
-              <th>Reward</th>
-              <th>Last Updated</th>
-              <th></th>
-            </tr>
-          </thead>
-          <tbody>
-            {% for u, card in rows %}
-              <tr>
-                <td>
-                  <strong>{{ u.username }}</strong><br>
-                  <span class="text-muted">{{ u.email }}</span>
-                </td>
-                <td>
-                  {{ card.stamp_count }} / {{ settings.stamps_required }}
-                </td>
-                <td>
-                  {% if card.reward_available %}
-                    <span class="badge text-bg-success">Available</span>
-                  {% else %}
-                    <span class="badge text-bg-secondary">No</span>
-                  {% endif %}
-                </td>
-                <td class="text-muted" style="font-size:0.9rem;">
-                  {{ card.updated_at }}
-                </td>
-                <td class="text-end">
-                  <form method="post" action="{{ url_for('manager_reset_loyalty') }}" class="m-0">
-                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-                    <input type="hidden" name="user_id" value="{{ u.id }}">
-                    <button class="btn btn-warning btn-sm" type="submit"
-                            onclick="return confirm('Reset loyalty for {{ u.username }}?');">
-                      Reset
-                    </button>
-                  </form>
-                </td>
-              </tr>
-            {% endfor %}
-          </tbody>
-        </table>
-      </div>
-
-      <p class="text-muted mb-0" style="font-size:0.9rem;">
-        Showing up to the most recent 300 cards.
-      </p>
-    {% endif %}
-
   </div>
+
+  <div class="col-12 col-sm-6 col-lg-4">
+    <div class="card shadow-sm h-100">
+      <div class="card-body">
+        <div class="text-muted small mb-1">Rewards Ready</div>
+        <div class="display-6 fw-semibold">{{ rewards_ready }}</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-12 col-sm-6 col-lg-4">
+    <div class="card shadow-sm h-100">
+      <div class="card-body">
+        <div class="text-muted small mb-1">Stamps Added Today</div>
+        <div class="display-6 fw-semibold">{{ stamps_today }}</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="row g-4">
+
+  <!-- Customers / loyalty cards -->
+  <div class="col-lg-8">
+    <div class="card shadow-sm">
+      <div class="card-body">
+        <h2 class="h6 mb-3">Customer Loyalty Cards</h2>
+
+        {% if rows and rows|length > 0 %}
+          <div class="table-responsive">
+            <table class="table table-sm align-middle">
+              <thead>
+                <tr>
+                  <th>Customer</th>
+                  <th>Stamps</th>
+                  <th>Reward</th>
+                  <th>Last Activity</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for u, card in rows %}
+                  <tr>
+                    <td>
+                      <strong>{{ u.username }}</strong><br>
+                      <span class="text-muted">{{ u.email }}</span>
+                    </td>
+
+                    <td>
+                      <span class="fw-semibold">
+                        {{ card.stamp_count }} / {{ settings.stamps_required }}
+                      </span>
+                    </td>
+
+                    <td>
+                      {% if card.reward_available %}
+                        <span class="badge bg-success">{{ settings.reward_name }} Ready</span>
+                      {% else %}
+                        <span class="badge bg-secondary">Not Ready</span>
+                      {% endif %}
+                    </td>
+
+                    <td class="text-muted" style="font-size:0.9rem;">
+                      {% if card.last_activity_at %}
+                        {{ card.last_activity_at }}
+                      {% else %}
+                        —
+                      {% endif %}
+                    </td>
+
+                    <td class="text-end">
+                      <form method="post"
+                            action="{{ url_for('manager_reset_loyalty') }}"
+                            class="m-0">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                        <input type="hidden" name="user_id" value="{{ u.id }}">
+                        <button class="btn btn-sm btn-outline-warning"
+                                onclick="return confirm('Reset loyalty for {{ u.username }}?');">
+                          Reset
+                        </button>
+                      </form>
+                    </td>
+                  </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        {% else %}
+          <div class="alert alert-info mb-0">
+            No customer loyalty cards yet for this cafe.
+          </div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+  <!-- Recent activity -->
+  <div class="col-lg-4">
+    <div class="card shadow-sm">
+      <div class="card-body">
+        <h2 class="h6 mb-3">Recent Activity</h2>
+
+        {% if recent_activity and recent_activity|length > 0 %}
+          <div class="d-flex flex-column gap-2">
+            {% for item in recent_activity %}
+              <div class="border rounded p-2">
+                <div class="fw-semibold small">
+                  {{ item.action.replace('_', ' ').title() }}
+                </div>
+
+                <div class="text-muted" style="font-size:0.9rem;">
+                  {% if item.note %}
+                    {{ item.note }}
+                  {% else %}
+                    No details
+                  {% endif %}
+                </div>
+
+                <div class="text-muted" style="font-size:0.8rem;">
+                  {{ item.created_at }}
+                </div>
+              </div>
+            {% endfor %}
+          </div>
+        {% else %}
+          <div class="text-muted">
+            No recent activity yet.
+          </div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
 </div>
 
 {% endblock %}
