@@ -70,12 +70,16 @@
             <select class="form-select" name="loyalty_type" id="loyaltyTypeSelect">
               <option value="stamps" {% if settings.loyalty_type == 'stamps' %}selected{% endif %}>Stamps</option>
               <option value="points" {% if settings.loyalty_type == 'points' %}selected{% endif %}>Points</option>
+              <option value="tiered_points" {% if settings.loyalty_type == 'tiered_points' %}selected{% endif %}>Tiered Points</option>
             </select>
           </div>
 
           <div class="mb-3">
             <label class="form-label">Reward Name</label>
             <input type="text" class="form-control" name="reward_name" value="{{ settings.reward_name }}" placeholder="Free Coffee">
+            <div class="form-text">
+              Used for normal stamps/points mode. Tiered points uses reward tiers below.
+            </div>
           </div>
 
           <div id="stampFields">
@@ -119,7 +123,7 @@
 
           <div class="form-check mb-2">
             <input class="form-check-input" type="checkbox" name="show_stamp_numbers" id="show_stamp_numbers" {% if settings.show_stamp_numbers %}checked{% endif %}>
-            <label class="form-check-label" for="show_stamp_numbers">Show stamp numbers</label>
+            <label class="form-check-label" for="show_stamp_numbers">Show stamp / point markers</label>
           </div>
 
           <div class="form-check mb-2">
@@ -232,19 +236,94 @@
   </div>
 </form>
 
+<!-- Reward Tiers -->
+<div class="card border-0 shadow-sm mt-4" style="border-radius: 22px;" id="tieredPointsCard">
+  <div class="card-body p-4">
+    <div class="d-flex justify-content-between align-items-start flex-wrap gap-3 mb-3">
+      <div>
+        <h2 class="h5 mb-1">Tiered Point Rewards</h2>
+        <p class="text-muted mb-0">
+          Add multiple reward levels for tiered points mode.
+        </p>
+      </div>
+    </div>
+
+    <form method="post" action="{{ url_for('add_reward_tier') }}" class="row g-3 mb-4">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+
+      <div class="col-md-4">
+        <label class="form-label">Points Required</label>
+        <input type="number" class="form-control" name="points_required" min="1" required>
+      </div>
+
+      <div class="col-md-5">
+        <label class="form-label">Reward Name</label>
+        <input type="text" class="form-control" name="reward_name" placeholder="Free Coffee" required>
+      </div>
+
+      <div class="col-md-3 d-flex align-items-end">
+        <button class="btn btn-success w-100" type="submit">Add Tier</button>
+      </div>
+    </form>
+
+    {% if tiers %}
+      <div class="table-responsive">
+        <table class="table align-middle mb-0">
+          <thead>
+            <tr>
+              <th>Points</th>
+              <th>Reward</th>
+              <th style="width: 120px;"></th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for tier in tiers %}
+              <tr>
+                <td>{{ tier.points_required }}</td>
+                <td>{{ tier.reward_name }}</td>
+                <td class="text-end">
+                  <form method="post" action="{{ url_for('delete_reward_tier') }}" class="m-0">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                    <input type="hidden" name="tier_id" value="{{ tier.id }}">
+                    <button class="btn btn-sm btn-outline-danger" type="submit">
+                      Delete
+                    </button>
+                  </form>
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% else %}
+      <div class="alert alert-info mb-0">
+        No reward tiers yet. Add your first tier above.
+      </div>
+    {% endif %}
+  </div>
+</div>
+
 <script>
   const loyaltyTypeSelect = document.getElementById("loyaltyTypeSelect");
   const stampFields = document.getElementById("stampFields");
   const pointsFields = document.getElementById("pointsFields");
+  const tieredPointsCard = document.getElementById("tieredPointsCard");
 
   function updateLoyaltyFields() {
     const mode = loyaltyTypeSelect.value;
-    if (mode === "points") {
-      stampFields.style.display = "none";
-      pointsFields.style.display = "block";
-    } else {
+
+    if (mode === "stamps") {
       stampFields.style.display = "block";
       pointsFields.style.display = "none";
+      tieredPointsCard.style.display = "none";
+    } else if (mode === "points") {
+      stampFields.style.display = "none";
+      pointsFields.style.display = "block";
+      tieredPointsCard.style.display = "none";
+    } else {
+      stampFields.style.display = "none";
+      pointsFields.style.display = "block";
+      tieredPointsCard.style.display = "block";
     }
   }
 

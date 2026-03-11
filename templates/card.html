@@ -1,13 +1,12 @@
 {% extends "base.html" %}
 {% block content %}
 
-{% set progress = 0 %}
-{% if settings.stamps_required > 0 %}
-  {% set progress = (card.stamp_count * 100) / settings.stamps_required %}
-{% endif %}
-{% if progress > 100 %}
-  {% set progress = 100 %}
-{% endif %}
+{% set current_value = progress.current %}
+{% set required_value = progress.required %}
+{% set progress_percent = progress.progress %}
+{% set remaining_value = progress.remaining %}
+{% set unit_label = progress.unit_label %}
+{% set mode = progress.mode %}
 
 <style>
   .stamp-circle {
@@ -48,6 +47,21 @@
     animation: stampPop 0.45s ease;
   }
 
+  .tier-chip {
+    border-radius: 999px;
+    padding: 0.45rem 0.8rem;
+    font-size: 0.88rem;
+    border: 1px solid rgba(255,255,255,0.25);
+    background: rgba(255,255,255,0.12);
+    color: white;
+  }
+
+  .tier-chip.active {
+    background: white;
+    color: #6f4e37;
+    font-weight: 700;
+  }
+
   @keyframes stampPop {
     0%   { transform: scale(0.7); }
     60%  { transform: scale(1.15); }
@@ -58,7 +72,6 @@
 <div class="row justify-content-center">
   <div class="col-12 col-md-10 col-lg-7">
 
-    <!-- Loyalty card -->
     <div class="card border-0 shadow-lg mb-4" style="border-radius: 24px; overflow: hidden;">
       <div class="card-body p-4 p-md-5" style="background: linear-gradient(135deg, #6f4e37 0%, #8b5e3c 100%); color: white;">
 
@@ -68,18 +81,29 @@
               Digital Loyalty Card
             </div>
             <h1 class="h3 mb-1">{{ active_cafe.name }}</h1>
-            <div style="opacity: 0.9;">
-              Reward: <strong>{{ settings.reward_name }}</strong>
+            <div style="opacity: 0.9;" id="rewardLabel">
+              Reward:
+              <strong>
+                {% if mode == "tiered_points" and progress.reward_name %}
+                  {{ progress.reward_name }}
+                {% else %}
+                  {{ settings.reward_name }}
+                {% endif %}
+              </strong>
             </div>
           </div>
 
           <div class="text-end">
             {% if card.reward_available %}
-              <span class="badge rounded-pill text-bg-warning px-3 py-2" style="font-size: 0.9rem;">
+              <span class="badge rounded-pill text-bg-warning px-3 py-2" style="font-size: 0.9rem;" id="rewardBadge">
                 Reward Ready
               </span>
+            {% elif mode == "tiered_points" %}
+              <span class="badge rounded-pill bg-light text-dark px-3 py-2" style="font-size: 0.9rem;" id="rewardBadge">
+                Tier Progress
+              </span>
             {% else %}
-              <span class="badge rounded-pill bg-light text-dark px-3 py-2" style="font-size: 0.9rem;">
+              <span class="badge rounded-pill bg-light text-dark px-3 py-2" style="font-size: 0.9rem;" id="rewardBadge">
                 In Progress
               </span>
             {% endif %}
@@ -92,54 +116,98 @@
 
         <div class="d-flex justify-content-between align-items-end mb-2">
           <div class="display-5 fw-semibold mb-0" id="stampCountText">
-            {{ card.stamp_count }} / {{ settings.stamps_required }}
+            {{ current_value }} / {{ required_value }}
           </div>
           <div style="font-size: 0.95rem; opacity: 0.9;" id="progressText">
-            {{ progress|round(0)|int }}%
+            {{ progress_percent|round(0)|int }}%
           </div>
         </div>
 
+        {% if settings.show_progress_bar %}
         <div class="progress mb-4" style="height: 14px; border-radius: 999px; background: rgba(255,255,255,0.22);">
           <div
             id="progressBar"
             class="progress-bar progress-bar-animated-custom"
             role="progressbar"
-            data-target="{{ progress }}"
+            data-target="{{ progress_percent }}"
             style="border-radius: 999px; background: white;">
           </div>
         </div>
+        {% endif %}
 
-        <div class="row row-cols-5 row-cols-sm-5 g-2 g-sm-3">
-          {% for i in range(1, settings.stamps_required + 1) %}
-            <div class="col">
-              <div
-                class="stamp-circle {% if i <= card.stamp_count %}filled{% endif %}"
-                data-stamp-index="{{ i }}">
-                {{ i }}
+        {% if mode == "stamps" and settings.show_stamp_numbers %}
+          <div class="row row-cols-5 row-cols-sm-5 g-2 g-sm-3 mb-3" id="stampCircleWrap">
+            {% for i in range(1, settings.stamps_required + 1) %}
+              <div class="col">
+                <div
+                  class="stamp-circle {% if i <= card.stamp_count %}filled{% endif %}"
+                  data-stamp-index="{{ i }}">
+                  {{ i }}
+                </div>
               </div>
+            {% endfor %}
+          </div>
+        {% endif %}
+
+        {% if mode == "points" %}
+          <div class="mb-3" style="opacity: 0.95;">
+            Each purchase adds <strong>{{ settings.points_per_purchase }}</strong> points.
+          </div>
+        {% endif %}
+
+        {% if mode == "tiered_points" %}
+          <div class="mb-3" style="opacity: 0.95;">
+            Each purchase adds <strong>{{ settings.points_per_purchase }}</strong> points.
+          </div>
+
+          {% if tiers %}
+            <div class="d-flex flex-wrap gap-2 mb-3" id="tierList">
+              {% for tier in tiers %}
+                <div class="tier-chip {% if card.unlocked_tier_id == tier.id %}active{% endif %}" data-tier-points="{{ tier.points_required }}">
+                  {{ tier.points_required }} — {{ tier.reward_name }}
+                </div>
+              {% endfor %}
             </div>
-          {% endfor %}
-        </div>
+          {% endif %}
+
+          <div class="small" style="opacity: 0.92;" id="tierStatus">
+            {% if progress.unlocked_tier %}
+              Current unlocked tier: <strong>{{ progress.unlocked_tier.reward_name }}</strong>
+            {% elif progress.next_tier %}
+              Next tier: <strong>{{ progress.next_tier.reward_name }}</strong> at {{ progress.next_tier.points_required }} points
+            {% else %}
+              Start earning points to unlock rewards.
+            {% endif %}
+          </div>
+        {% endif %}
 
         <div class="mt-4" id="rewardBox" style="opacity: 0.95;">
           {% if card.reward_available %}
-            🎉 You’ve unlocked a <strong>{{ settings.reward_name }}</strong>.
+            🎉 You’ve unlocked a
+            <strong>
+              {% if mode == "tiered_points" and progress.unlocked_tier %}
+                {{ progress.unlocked_tier.reward_name }}
+              {% else %}
+                {{ settings.reward_name }}
+              {% endif %}
+            </strong>.
           {% else %}
-            {{ settings.stamps_required - card.stamp_count }} more stamp{% if settings.stamps_required - card.stamp_count != 1 %}s{% endif %} until your reward.
+            {{ remaining_value }} more {{ unit_label }} until your reward.
           {% endif %}
         </div>
 
       </div>
     </div>
 
-    <!-- QR card -->
     <div class="card border-0 shadow-sm" style="border-radius: 22px;">
       <div class="card-body p-4 text-center">
 
-        <h2 class="h5 mb-2">Your QR Code</h2>
-        <p class="text-muted mb-4">
-          Show this to staff when purchasing to add stamps to your card.
-        </p>
+        {% if settings.show_qr_label %}
+          <h2 class="h5 mb-2">Your QR Code</h2>
+          <p class="text-muted mb-4">
+            Show this to staff when purchasing to add loyalty progress to your card.
+          </p>
+        {% endif %}
 
         <div class="bg-white border rounded-4 d-inline-flex align-items-center justify-content-center p-3 p-md-4 shadow-sm mb-3">
           <img
@@ -159,14 +227,14 @@
 </div>
 
 <script>
-  // Initial animation on page load
   window.addEventListener("load", () => {
     const progressBar = document.getElementById("progressBar");
-    const target = parseFloat(progressBar.dataset.target || "0");
-
-    requestAnimationFrame(() => {
-      progressBar.style.width = target + "%";
-    });
+    if (progressBar) {
+      const target = parseFloat(progressBar.dataset.target || "0");
+      requestAnimationFrame(() => {
+        progressBar.style.width = target + "%";
+      });
+    }
 
     const filledStamps = document.querySelectorAll(".stamp-circle.filled");
     filledStamps.forEach((stamp, index) => {
@@ -178,8 +246,8 @@
     });
   });
 
-  // Live polling for card updates
-  let lastStampCount = {{ card.stamp_count }};
+  let lastCurrentValue = {{ current_value }};
+  let lastRewardAvailable = {{ 'true' if card.reward_available else 'false' }};
 
   async function pollCardStatus() {
     try {
@@ -192,34 +260,82 @@
       const stampCountText = document.getElementById("stampCountText");
       const progressText = document.getElementById("progressText");
       const rewardBox = document.getElementById("rewardBox");
+      const rewardLabel = document.getElementById("rewardLabel");
+      const rewardBadge = document.getElementById("rewardBadge");
+      const tierStatus = document.getElementById("tierStatus");
 
-      if (data.stamp_count !== lastStampCount || data.reward_available !== {{ 'true' if card.reward_available else 'false' }}) {
-        stampCountText.textContent = `${data.stamp_count} / ${data.stamps_required}`;
+      if (data.current !== lastCurrentValue || data.reward_available !== lastRewardAvailable) {
+        stampCountText.textContent = `${data.current} / ${data.required}`;
         progressText.textContent = `${Math.round(data.progress)}%`;
-        progressBar.style.width = `${data.progress}%`;
 
-        const allStamps = document.querySelectorAll(".stamp-circle");
-        allStamps.forEach((stampEl, idx) => {
-          const stampNumber = idx + 1;
-          const shouldFill = stampNumber <= data.stamp_count;
-          const isFilled = stampEl.classList.contains("filled");
-
-          if (shouldFill && !isFilled) {
-            stampEl.classList.add("filled", "stamp-bounce");
-            setTimeout(() => stampEl.classList.remove("stamp-bounce"), 500);
-          } else if (!shouldFill && isFilled) {
-            stampEl.classList.remove("filled");
-          }
-        });
-
-        if (data.reward_available) {
-          rewardBox.innerHTML = `🎉 You’ve unlocked a <strong>${data.reward_name}</strong>.`;
-        } else {
-          const remaining = data.stamps_required - data.stamp_count;
-          rewardBox.innerHTML = `${remaining} more stamp${remaining !== 1 ? "s" : ""} until your reward.`;
+        if (progressBar) {
+          progressBar.style.width = `${data.progress}%`;
         }
 
-        lastStampCount = data.stamp_count;
+        if (rewardLabel) {
+          rewardLabel.innerHTML = `Reward: <strong>${data.reward_name}</strong>`;
+        }
+
+        if (rewardBadge) {
+          if (data.reward_available) {
+            rewardBadge.className = "badge rounded-pill text-bg-warning px-3 py-2";
+            rewardBadge.textContent = "Reward Ready";
+          } else if (data.loyalty_type === "tiered_points") {
+            rewardBadge.className = "badge rounded-pill bg-light text-dark px-3 py-2";
+            rewardBadge.textContent = "Tier Progress";
+          } else {
+            rewardBadge.className = "badge rounded-pill bg-light text-dark px-3 py-2";
+            rewardBadge.textContent = "In Progress";
+          }
+        }
+
+        if (rewardBox) {
+          if (data.reward_available) {
+            rewardBox.innerHTML = `🎉 You’ve unlocked a <strong>${data.reward_name}</strong>.`;
+          } else {
+            rewardBox.innerHTML = `${data.remaining} more ${data.unit_label} until your reward.`;
+          }
+        }
+
+        if (data.loyalty_type === "stamps") {
+          const allStamps = document.querySelectorAll(".stamp-circle");
+          allStamps.forEach((stampEl, idx) => {
+            const stampNumber = idx + 1;
+            const shouldFill = stampNumber <= data.stamp_count;
+            const isFilled = stampEl.classList.contains("filled");
+
+            if (shouldFill && !isFilled) {
+              stampEl.classList.add("filled", "stamp-bounce");
+              setTimeout(() => stampEl.classList.remove("stamp-bounce"), 500);
+            } else if (!shouldFill && isFilled) {
+              stampEl.classList.remove("filled");
+            }
+          });
+        }
+
+        if (data.loyalty_type === "tiered_points") {
+          document.querySelectorAll(".tier-chip").forEach(chip => {
+            const chipPoints = parseInt(chip.getAttribute("data-tier-points"), 10);
+            if (!Number.isNaN(chipPoints) && chipPoints <= data.current && data.reward_available) {
+              chip.classList.add("active");
+            } else {
+              chip.classList.remove("active");
+            }
+          });
+
+          if (tierStatus) {
+            if (data.reward_available && data.unlocked_tier_name) {
+              tierStatus.innerHTML = `Current unlocked tier: <strong>${data.unlocked_tier_name}</strong>`;
+            } else if (data.next_tier_name && data.next_tier_points) {
+              tierStatus.innerHTML = `Next tier: <strong>${data.next_tier_name}</strong> at ${data.next_tier_points} points`;
+            } else {
+              tierStatus.innerHTML = `Start earning points to unlock rewards.`;
+            }
+          }
+        }
+
+        lastCurrentValue = data.current;
+        lastRewardAvailable = data.reward_available;
       }
     } catch (err) {
       console.error("Polling failed:", err);

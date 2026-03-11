@@ -54,6 +54,13 @@ class Cafe(db.Model):
         cascade="all, delete-orphan",
     )
 
+    reward_tiers = db.relationship(
+        "RewardTier",
+        back_populates="cafe",
+        cascade="all, delete-orphan",
+        order_by="RewardTier.points_required.asc()",
+    )
+
 
 class User(db.Model):
     __tablename__ = "users"
@@ -137,15 +144,16 @@ class CafeSettings(db.Model):
     cafe_id = db.Column(db.Integer, db.ForeignKey("cafes.id"), unique=True, nullable=False, index=True)
 
     # Loyalty mode
-    loyalty_type = db.Column(db.String(20), nullable=False, default="stamps")  # stamps | points
+    loyalty_type = db.Column(db.String(20), nullable=False, default="stamps")  # stamps | points | tiered_points
 
     # Stamp mode
     stamps_required = db.Column(db.Integer, nullable=False, default=9)
 
-    # Points mode
+    # Basic points mode
     points_required = db.Column(db.Integer, nullable=False, default=100)
     points_per_purchase = db.Column(db.Integer, nullable=False, default=10)
 
+    # Fallback reward name for non-tiered modes
     reward_name = db.Column(db.String(80), nullable=False, default="Free Coffee")
 
     # Display settings
@@ -178,6 +186,26 @@ class CafeSettings(db.Model):
     cafe = db.relationship("Cafe", back_populates="settings")
 
 
+class RewardTier(db.Model):
+    __tablename__ = "reward_tiers"
+
+    id = db.Column(db.Integer, primary_key=True)
+
+    cafe_id = db.Column(db.Integer, db.ForeignKey("cafes.id"), nullable=False, index=True)
+
+    points_required = db.Column(db.Integer, nullable=False, index=True)
+    reward_name = db.Column(db.String(120), nullable=False)
+
+    is_active = db.Column(db.Boolean, nullable=False, default=True)
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+
+    __table_args__ = (
+        db.UniqueConstraint("cafe_id", "points_required", name="uq_cafe_points_tier"),
+    )
+
+    cafe = db.relationship("Cafe", back_populates="reward_tiers")
+
+
 class LoyaltyCard(db.Model):
     __tablename__ = "loyalty_cards"
 
@@ -195,6 +223,9 @@ class LoyaltyCard(db.Model):
     # Points mode
     points_balance = db.Column(db.Integer, nullable=False, default=0)
 
+    # Tiered points mode
+    unlocked_tier_id = db.Column(db.Integer, db.ForeignKey("reward_tiers.id"), nullable=True, index=True)
+
     # History helpers
     last_scan_at = db.Column(db.DateTime, nullable=True)
     last_redeem_at = db.Column(db.DateTime, nullable=True)
@@ -208,6 +239,7 @@ class LoyaltyCard(db.Model):
 
     user = db.relationship("User", back_populates="loyalty_cards")
     cafe = db.relationship("Cafe", back_populates="loyalty_cards")
+    unlocked_tier = db.relationship("RewardTier")
 
 
 class ActivityLog(db.Model):
@@ -220,9 +252,6 @@ class ActivityLog(db.Model):
     target_user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False, index=True)
 
     action = db.Column(db.String(40), nullable=False, index=True)
-    # examples:
-    # stamp_added, points_added, reward_redeemed, loyalty_reset,
-    # membership_added, membership_removed, password_changed, invite_created
 
     stamp_delta = db.Column(db.Integer, nullable=False, default=0)
     points_delta = db.Column(db.Integer, nullable=False, default=0)

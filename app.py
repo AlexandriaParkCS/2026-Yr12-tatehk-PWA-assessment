@@ -20,6 +20,7 @@ from models import (
     Cafe,
     CafeMember,
     CafeSettings,
+    RewardTier,
     LoyaltyCard,
     ActivityLog,
     StaffInvite,
@@ -61,7 +62,64 @@ def ensure_loyalty_card(user: User, cafe: Cafe) -> LoyaltyCard:
     return card
 
 
-def get_loyalty_progress(card: LoyaltyCard, settings: CafeSettings) -> dict:
+def get_active_reward_tiers(cafe_id: int):
+    return (
+        RewardTier.query
+        .filter_by(cafe_id=cafe_id, is_active=True)
+        .order_by(RewardTier.points_required.asc())
+        .all()
+    )
+
+
+def get_best_unlocked_tier(points_balance: int, cafe_id: int):
+    tiers = get_active_reward_tiers(cafe_id)
+    unlocked = None
+    for tier in tiers:
+        if points_balance >= tier.points_required:
+            unlocked = tier
+        else:
+            break
+    return unlocked
+
+
+def get_next_tier(points_balance: int, cafe_id: int):
+    tiers = get_active_reward_tiers(cafe_id)
+    for tier in tiers:
+        if points_balance < tier.points_required:
+            return tier
+    return None
+
+
+def get_loyalty_progress(card: LoyaltyCard, settings: CafeSettings, cafe_id: int | None = None) -> dict:
+    """
+    Returns a normalised structure for templates and JSON.
+    """
+    if settings.loyalty_type == "tiered_points":
+        current = card.points_balance
+        unlocked_tier = get_best_unlocked_tier(current, cafe_id or card.cafe_id)
+        next_tier = get_next_tier(current, cafe_id or card.cafe_id)
+
+        if next_tier:
+            required = next_tier.points_required
+            progress = min(100, (current * 100) / required) if required > 0 else 0
+            remaining = max(required - current, 0)
+        else:
+            required = unlocked_tier.points_required if unlocked_tier else max(current, 1)
+            progress = 100
+            remaining = 0
+
+        return {
+            "mode": "tiered_points",
+            "current": current,
+            "required": required,
+            "progress": progress,
+            "remaining": remaining,
+            "unit_label": "points",
+            "reward_name": unlocked_tier.reward_name if unlocked_tier else (next_tier.reward_name if next_tier else settings.reward_name),
+            "unlocked_tier": unlocked_tier,
+            "next_tier": next_tier,
+        }
+
     if settings.loyalty_type == "points":
         required = max(settings.points_required, 1)
         current = card.points_balance
@@ -74,6 +132,9 @@ def get_loyalty_progress(card: LoyaltyCard, settings: CafeSettings) -> dict:
             "progress": progress,
             "remaining": remaining,
             "unit_label": "points",
+            "reward_name": settings.reward_name,
+            "unlocked_tier": None,
+            "next_tier": None,
         }
 
     required = max(settings.stamps_required, 1)
@@ -87,15 +148,29 @@ def get_loyalty_progress(card: LoyaltyCard, settings: CafeSettings) -> dict:
         "progress": progress,
         "remaining": remaining,
         "unit_label": "stamps",
+        "reward_name": settings.reward_name,
+        "unlocked_tier": None,
+        "next_tier": None,
     }
 
 
-def apply_loyalty_increment(card: LoyaltyCard, settings: CafeSettings) -> tuple[int, int]:
+def apply_loyalty_increment(card: LoyaltyCard, settings: CafeSettings, cafe_id: int) -> tuple[int, int]:
     """
     Returns (stamp_delta, points_delta)
     """
     if card.reward_available:
         return (0, 0)
+
+    if settings.loyalty_type == "tiered_points":
+        delta = max(settings.points_per_purchase, 1)
+        card.points_balance += delta
+
+        unlocked_tier = get_best_unlocked_tier(card.points_balance, cafe_id)
+        if unlocked_tier:
+            card.reward_available = True
+            card.unlocked_tier_id = unlocked_tier.id
+
+        return (0, delta)
 
     if settings.loyalty_type == "points":
         delta = max(settings.points_per_purchase, 1)
@@ -113,10 +188,12 @@ def apply_loyalty_increment(card: LoyaltyCard, settings: CafeSettings) -> tuple[
 
 
 def reset_loyalty(card: LoyaltyCard, settings: CafeSettings) -> None:
-    if settings.loyalty_type == "points":
+    if settings.loyalty_type in ("points", "tiered_points"):
         card.points_balance = 0
+        card.unlocked_tier_id = None
     else:
         card.stamp_count = 0
+
     card.reward_available = False
     card.last_redeem_at = datetime.utcnow()
     card.last_activity_at = datetime.utcnow()
@@ -165,7 +242,7 @@ def create_app():
     app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", "dev-secret-change-me")
     app.config["SQLALCHEMY_DATABASE_URI"] = os.environ.get(
         "DATABASE_URL",
-        "sqlite:///coffee_loyalty_multi_v3.db"
+        "sqlite:///coffee_loyalty_multi_v4.db"
     )
     app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
     app.config["SESSION_COOKIE_HTTPONLY"] = True
@@ -293,7 +370,7 @@ def create_app():
     def require_csrf():
         token_form = request.form.get("csrf_token", "")
         token_session = session.get("csrf_token", "")
-        if not token_form or token_form != token_session:
+        if not token_form or not token_session or token_form != token_session:
             abort(400, description="CSRF token missing/invalid")
 
     @app.context_processor
@@ -330,7 +407,7 @@ def create_app():
         return redirect(request.referrer or url_for("login"))
 
     # ---------------------------
-    # Public / auth
+    # Home / auth
     # ---------------------------
     @app.get("/")
     def index():
@@ -542,7 +619,7 @@ def create_app():
             if not cafe or not cafe.is_active:
                 continue
             settings = ensure_cafe_settings(cafe)
-            progress = get_loyalty_progress(card, settings)
+            progress = get_loyalty_progress(card, settings, cafe.id)
             rows.append((cafe, card, settings, progress))
 
         return render_template("my_stamps.html", rows=rows)
@@ -600,8 +677,9 @@ def create_app():
         cafe = current_cafe()
         settings = ensure_cafe_settings(cafe)
         card = ensure_loyalty_card(u, cafe)
-        progress = get_loyalty_progress(card, settings)
-        return render_template("card.html", card=card, settings=settings, progress=progress)
+        progress = get_loyalty_progress(card, settings, cafe.id)
+        tiers = get_active_reward_tiers(cafe.id) if settings.loyalty_type == "tiered_points" else []
+        return render_template("card.html", card=card, settings=settings, progress=progress, tiers=tiers)
 
     @app.get("/card/status")
     @require_login
@@ -611,7 +689,7 @@ def create_app():
         cafe = current_cafe()
         settings = ensure_cafe_settings(cafe)
         card = ensure_loyalty_card(u, cafe)
-        progress = get_loyalty_progress(card, settings)
+        progress = get_loyalty_progress(card, settings, cafe.id)
 
         return jsonify({
             "loyalty_type": settings.loyalty_type,
@@ -621,9 +699,12 @@ def create_app():
             "progress": progress["progress"],
             "unit_label": progress["unit_label"],
             "reward_available": card.reward_available,
-            "reward_name": settings.reward_name,
+            "reward_name": progress["reward_name"],
             "stamp_count": card.stamp_count,
             "points_balance": card.points_balance,
+            "next_tier_name": progress["next_tier"].reward_name if progress["next_tier"] else None,
+            "next_tier_points": progress["next_tier"].points_required if progress["next_tier"] else None,
+            "unlocked_tier_name": progress["unlocked_tier"].reward_name if progress["unlocked_tier"] else None,
         })
 
     @app.get("/qr/<token>")
@@ -649,7 +730,8 @@ def create_app():
     def staff_home():
         cafe = current_cafe()
         settings = ensure_cafe_settings(cafe)
-        return render_template("staff.html", settings=settings)
+        tiers = get_active_reward_tiers(cafe.id) if settings.loyalty_type == "tiered_points" else []
+        return render_template("staff.html", settings=settings, tiers=tiers)
 
     @app.get("/staff/lookup")
     @require_login
@@ -674,7 +756,7 @@ def create_app():
             if not card:
                 return jsonify({"ok": False, "error": "Customer is not enrolled at this cafe"}), 404
 
-        progress = get_loyalty_progress(card, settings)
+        progress = get_loyalty_progress(card, settings, cafe.id)
 
         return jsonify({
             "ok": True,
@@ -685,7 +767,7 @@ def create_app():
             },
             "card": {
                 "reward_available": bool(card.reward_available),
-                "reward_name": settings.reward_name,
+                "reward_name": progress["reward_name"],
                 "loyalty_type": settings.loyalty_type,
                 "stamp_count": card.stamp_count,
                 "points_balance": card.points_balance,
@@ -694,6 +776,9 @@ def create_app():
                 "remaining": progress["remaining"],
                 "progress": progress["progress"],
                 "unit_label": progress["unit_label"],
+                "next_tier_name": progress["next_tier"].reward_name if progress["next_tier"] else None,
+                "next_tier_points": progress["next_tier"].points_required if progress["next_tier"] else None,
+                "unlocked_tier_name": progress["unlocked_tier"].reward_name if progress["unlocked_tier"] else None,
             }
         })
 
@@ -729,7 +814,7 @@ def create_app():
                 flash("Customer is not enrolled at this cafe.", "danger")
                 return redirect(url_for("staff_home"))
 
-        stamp_delta, points_delta = apply_loyalty_increment(card, settings)
+        stamp_delta, points_delta = apply_loyalty_increment(card, settings, cafe.id)
         if stamp_delta == 0 and points_delta == 0 and card.reward_available:
             flash("Reward already available — redeem first.", "warning")
             return redirect(url_for("staff_home"))
@@ -739,12 +824,15 @@ def create_app():
         card.last_activity_at = now
         db.session.commit()
 
-        action = "points_added" if settings.loyalty_type == "points" else "stamp_added"
-        note = (
-            f"{actor.username} added {points_delta} points"
-            if settings.loyalty_type == "points"
-            else f"{actor.username} added a stamp"
-        )
+        if settings.loyalty_type == "tiered_points":
+            action = "points_added"
+            note = f"{actor.username} added {points_delta} points"
+        elif settings.loyalty_type == "points":
+            action = "points_added"
+            note = f"{actor.username} added {points_delta} points"
+        else:
+            action = "stamp_added"
+            note = f"{actor.username} added a stamp"
 
         log_activity(
             cafe_id=cafe.id,
@@ -757,7 +845,7 @@ def create_app():
         )
 
         if settings.enable_notifications:
-            progress = get_loyalty_progress(card, settings)
+            progress = get_loyalty_progress(card, settings, cafe.id)
             create_notification(
                 u.id,
                 cafe.id,
@@ -765,7 +853,7 @@ def create_app():
                 f"You now have {progress['current']}/{progress['required']} {progress['unit_label']} at {cafe.name}."
             )
 
-        if settings.loyalty_type == "points":
+        if settings.loyalty_type in ("points", "tiered_points"):
             flash(f"Added {points_delta} points to {u.username}.", "success")
         else:
             flash(f"Stamp added to {u.username}.", "success")
@@ -801,6 +889,10 @@ def create_app():
             flash("No reward available yet.", "warning")
             return redirect(url_for("staff_home"))
 
+        reward_name = settings.reward_name
+        if settings.loyalty_type == "tiered_points" and card.unlocked_tier:
+            reward_name = card.unlocked_tier.reward_name
+
         reset_loyalty(card, settings)
         db.session.commit()
 
@@ -809,7 +901,7 @@ def create_app():
             actor_user_id=actor.id,
             target_user_id=u.id,
             action="reward_redeemed",
-            note=f"{settings.reward_name} redeemed"
+            note=f"{reward_name} redeemed"
         )
 
         if settings.enable_notifications:
@@ -817,10 +909,10 @@ def create_app():
                 u.id,
                 cafe.id,
                 "Reward redeemed",
-                f"Your {settings.reward_name} was redeemed at {cafe.name}."
+                f"Your {reward_name} was redeemed at {cafe.name}."
             )
 
-        flash(f"Redeemed {settings.reward_name} for {u.username}.", "success")
+        flash(f"Redeemed {reward_name} for {u.username}.", "success")
         return redirect(url_for("staff_home"))
 
     @app.get("/staff/search-json")
@@ -846,16 +938,27 @@ def create_app():
         payload = []
         for u in users:
             card = LoyaltyCard.query.filter_by(user_id=u.id, cafe_id=cafe.id).first()
+
             if not card and settings.auto_create_card_on_first_scan:
                 current = 0
-                required = settings.points_required if settings.loyalty_type == "points" else settings.stamps_required
+                if settings.loyalty_type == "stamps":
+                    required = settings.stamps_required
+                    unit_label = "stamps"
+                elif settings.loyalty_type == "points":
+                    required = settings.points_required
+                    unit_label = "points"
+                else:
+                    next_tier = get_next_tier(0, cafe.id)
+                    required = next_tier.points_required if next_tier else 0
+                    unit_label = "points"
                 reward_available = False
             elif not card:
                 continue
             else:
-                progress = get_loyalty_progress(card, settings)
+                progress = get_loyalty_progress(card, settings, cafe.id)
                 current = progress["current"]
                 required = progress["required"]
+                unit_label = progress["unit_label"]
                 reward_available = card.reward_available
 
             payload.append({
@@ -863,6 +966,7 @@ def create_app():
                 "email": u.email,
                 "current": current,
                 "required": required,
+                "unit_label": unit_label,
                 "reward_available": reward_available,
                 "reward_name": settings.reward_name,
                 "loyalty_type": settings.loyalty_type,
@@ -872,7 +976,7 @@ def create_app():
         return jsonify(payload)
 
     # ---------------------------
-    # Manager
+    # Manager dashboard / staff / settings
     # ---------------------------
     @app.get("/manager")
     @require_login
@@ -894,14 +998,14 @@ def create_app():
             u = db.session.get(User, c.user_id)
             if not u or u.is_global_admin:
                 continue
-            progress = get_loyalty_progress(c, settings)
+            progress = get_loyalty_progress(c, settings, cafe.id)
             rows.append((u, c, progress))
 
         total_customers = LoyaltyCard.query.filter_by(cafe_id=cafe.id).count()
         rewards_ready = LoyaltyCard.query.filter_by(cafe_id=cafe.id, reward_available=True).count()
 
         today = datetime.utcnow().date()
-        if settings.loyalty_type == "points":
+        if settings.loyalty_type in ("points", "tiered_points"):
             activity_today = (
                 db.session.query(func.coalesce(func.sum(ActivityLog.points_delta), 0))
                 .filter(ActivityLog.cafe_id == cafe.id)
@@ -925,6 +1029,8 @@ def create_app():
             .all()
         )
 
+        tiers = get_active_reward_tiers(cafe.id) if settings.loyalty_type == "tiered_points" else []
+
         return render_template(
             "manager_dashboard.html",
             rows=rows,
@@ -933,6 +1039,7 @@ def create_app():
             rewards_ready=rewards_ready,
             activity_today=activity_today,
             recent_activity=recent_activity,
+            tiers=tiers,
         )
 
     @app.post("/manager/reset-loyalty")
@@ -1194,6 +1301,9 @@ def create_app():
         flash("Invite created.", "success")
         return redirect(url_for("manager_staff"))
 
+    # ---------------------------
+    # Settings
+    # ---------------------------
     @app.get("/settings")
     @require_login
     @require_cafe_selected
@@ -1207,7 +1317,8 @@ def create_app():
                 abort(403)
 
         settings = ensure_cafe_settings(cafe)
-        return render_template("cafe_settings.html", settings=settings)
+        tiers = get_active_reward_tiers(cafe.id)
+        return render_template("cafe_settings.html", settings=settings, tiers=tiers)
 
     @app.post("/settings")
     @require_login
@@ -1224,7 +1335,6 @@ def create_app():
 
         settings = ensure_cafe_settings(cafe)
 
-        # cafe branding
         cafe.logo_url = (request.form.get("logo_url") or "").strip() or None
         cafe.accent_color = (request.form.get("accent_color") or cafe.accent_color).strip()
         cafe.secondary_color = (request.form.get("secondary_color") or cafe.secondary_color).strip()
@@ -1237,9 +1347,8 @@ def create_app():
         if card_style in ("rounded", "minimal", "bold"):
             cafe.card_style = card_style
 
-        # settings
         loyalty_type = (request.form.get("loyalty_type") or settings.loyalty_type).strip().lower()
-        if loyalty_type in ("stamps", "points"):
+        if loyalty_type in ("stamps", "points", "tiered_points"):
             settings.loyalty_type = loyalty_type
 
         stamps_required = (request.form.get("stamps_required") or "").strip()
@@ -1289,6 +1398,73 @@ def create_app():
 
         db.session.commit()
         flash("Settings updated.", "success")
+        return redirect(url_for("cafe_settings"))
+
+    @app.post("/settings/tiers/add")
+    @require_login
+    @require_cafe_selected
+    def add_reward_tier():
+        require_csrf()
+        u = current_user()
+        cafe = current_cafe()
+
+        if not is_global_admin(u):
+            m = get_membership(u, cafe)
+            if not m or m.role != "manager":
+                abort(403)
+
+        points_required = (request.form.get("points_required") or "").strip()
+        reward_name = (request.form.get("reward_name") or "").strip()
+
+        if not points_required.isdigit() or int(points_required) < 1:
+            flash("Points required must be a positive number.", "danger")
+            return redirect(url_for("cafe_settings"))
+        if not reward_name:
+            flash("Reward name is required.", "danger")
+            return redirect(url_for("cafe_settings"))
+
+        existing = RewardTier.query.filter_by(cafe_id=cafe.id, points_required=int(points_required)).first()
+        if existing:
+            existing.reward_name = reward_name
+            existing.is_active = True
+        else:
+            db.session.add(RewardTier(
+                cafe_id=cafe.id,
+                points_required=int(points_required),
+                reward_name=reward_name,
+                is_active=True
+            ))
+
+        db.session.commit()
+        flash("Reward tier saved.", "success")
+        return redirect(url_for("cafe_settings"))
+
+    @app.post("/settings/tiers/delete")
+    @require_login
+    @require_cafe_selected
+    def delete_reward_tier():
+        require_csrf()
+        u = current_user()
+        cafe = current_cafe()
+
+        if not is_global_admin(u):
+            m = get_membership(u, cafe)
+            if not m or m.role != "manager":
+                abort(403)
+
+        tier_id = request.form.get("tier_id", "")
+        if not tier_id.isdigit():
+            flash("Invalid tier.", "danger")
+            return redirect(url_for("cafe_settings"))
+
+        tier = db.session.get(RewardTier, int(tier_id))
+        if not tier or tier.cafe_id != cafe.id:
+            flash("Tier not found.", "danger")
+            return redirect(url_for("cafe_settings"))
+
+        db.session.delete(tier)
+        db.session.commit()
+        flash("Reward tier deleted.", "success")
         return redirect(url_for("cafe_settings"))
 
     # ---------------------------
