@@ -66,7 +66,7 @@
                 </tr>
               </thead>
               <tbody>
-                {% for u, card in rows %}
+                {% for u, card, progress in rows %}
                   <tr>
                     <td>
                       <strong>{{ u.username }}</strong><br>
@@ -75,7 +75,7 @@
 
                     <td>
                       <span class="fw-semibold">
-                        {{ card.stamp_count }} / {{ settings.stamps_required }}
+                        {{ progress.current }} / {{ progress.required }}
                       </span>
                     </td>
 

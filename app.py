@@ -940,18 +940,25 @@ def create_app():
             card = LoyaltyCard.query.filter_by(user_id=u.id, cafe_id=cafe.id).first()
 
             if not card and settings.auto_create_card_on_first_scan:
-                current = 0
                 if settings.loyalty_type == "stamps":
+                    current = 0
                     required = settings.stamps_required
                     unit_label = "stamps"
+                    reward_name = settings.reward_name
+                    reward_available = False
                 elif settings.loyalty_type == "points":
+                    current = 0
                     required = settings.points_required
                     unit_label = "points"
+                    reward_name = settings.reward_name
+                    reward_available = False
                 else:
+                    current = 0
                     next_tier = get_next_tier(0, cafe.id)
                     required = next_tier.points_required if next_tier else 0
                     unit_label = "points"
-                reward_available = False
+                    reward_name = next_tier.reward_name if next_tier else settings.reward_name
+                    reward_available = False
             elif not card:
                 continue
             else:
@@ -959,6 +966,7 @@ def create_app():
                 current = progress["current"]
                 required = progress["required"]
                 unit_label = progress["unit_label"]
+                reward_name = progress["reward_name"]
                 reward_available = card.reward_available
 
             payload.append({
@@ -968,7 +976,7 @@ def create_app():
                 "required": required,
                 "unit_label": unit_label,
                 "reward_available": reward_available,
-                "reward_name": settings.reward_name,
+                "reward_name": reward_name,
                 "loyalty_type": settings.loyalty_type,
                 "qr_token": u.qr_token,
             })
