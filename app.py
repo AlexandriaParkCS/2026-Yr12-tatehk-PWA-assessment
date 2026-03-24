@@ -17,6 +17,7 @@ from sqlalchemy import or_, and_, func
 from models import (
     db,
     User,
+    GlobalSettings,
     Cafe,
     CafeMember,
     CafeSettings,
@@ -42,10 +43,35 @@ def ensure_cafe_settings(cafe: Cafe) -> CafeSettings:
     if cafe.settings:
         return cafe.settings
 
-    settings = CafeSettings(cafe_id=cafe.id)
+    global_settings = ensure_global_settings()
+    settings = build_default_cafe_settings(cafe.id, global_settings)
     db.session.add(settings)
     db.session.commit()
     return settings
+
+
+def ensure_global_settings() -> GlobalSettings:
+    settings = db.session.get(GlobalSettings, 1)
+    if settings:
+        return settings
+
+    settings = GlobalSettings(id=1)
+    db.session.add(settings)
+    db.session.commit()
+    return settings
+
+
+def build_default_cafe_settings(cafe_id: int, global_settings: GlobalSettings) -> CafeSettings:
+    return CafeSettings(
+        cafe_id=cafe_id,
+        stamps_required=max(global_settings.default_stamps_required, 1),
+        points_required=max(global_settings.default_points_required, 1),
+        points_per_purchase=max(global_settings.default_points_per_purchase, 1),
+        reward_name=global_settings.default_reward_name,
+        welcome_message=global_settings.default_welcome_message,
+        invite_expiry_days=max(global_settings.default_invite_expiry_days, 1),
+        allow_manager_invites=global_settings.default_allow_manager_invites,
+    )
 
 
 def ensure_loyalty_card(user: User, cafe: Cafe) -> LoyaltyCard:
@@ -264,6 +290,7 @@ def create_app():
 
     with app.app_context():
         db.create_all()
+        ensure_global_settings()
         seed_global_admin()
 
     # ---------------------------
@@ -389,6 +416,7 @@ def create_app():
     def inject_globals():
         u = current_user()
         cafe = current_cafe()
+        global_settings = ensure_global_settings()
         membership = None
         if u and cafe and not is_global_admin(u):
             membership = get_membership(u, cafe)
@@ -407,6 +435,7 @@ def create_app():
             "csrf_token": get_csrf_token(),
             "me": u,
             "active_cafe": cafe,
+            "global_settings": global_settings,
             "me_membership": membership,
             "me_is_admin": is_global_admin(u),
             "unread_notifications": unread_notifications,
@@ -431,6 +460,11 @@ def create_app():
 
     @app.route("/register", methods=["GET", "POST"])
     def register():
+        global_settings = ensure_global_settings()
+        if not global_settings.allow_public_registration:
+            flash("Public registration is currently disabled.", "warning")
+            return redirect(url_for("login"))
+
         if request.method == "POST":
             require_csrf()
 
@@ -507,6 +541,7 @@ def create_app():
 
     @app.route("/forgot-password", methods=["GET", "POST"])
     def forgot_password():
+        global_settings = ensure_global_settings()
         reset_url = None
 
         if request.method == "POST":
@@ -520,7 +555,11 @@ def create_app():
             user = User.query.filter_by(email=email).first()
             if not user or not user.is_active:
                 flash("If that email exists, a reset link is ready.", "info")
-                return render_template("forgot_password.html", reset_url=None)
+                return render_template(
+                    "forgot_password.html",
+                    reset_url=None,
+                    reset_expiry_hours=max(global_settings.password_reset_expiry_hours, 1),
+                )
 
             active_tokens = PasswordResetToken.query.filter_by(user_id=user.id, used_at=None).all()
             now = datetime.utcnow()
@@ -529,7 +568,7 @@ def create_app():
 
             reset = PasswordResetToken(
                 user_id=user.id,
-                expires_at=now + timedelta(hours=1),
+                expires_at=now + timedelta(hours=max(global_settings.password_reset_expiry_hours, 1)),
             )
             db.session.add(reset)
             db.session.commit()
@@ -537,7 +576,11 @@ def create_app():
             reset_url = url_for("reset_password", token=reset.token, _external=True)
             flash("Reset link generated. This project does not send email yet, so use the link below.", "success")
 
-        return render_template("forgot_password.html", reset_url=reset_url)
+        return render_template(
+            "forgot_password.html",
+            reset_url=reset_url,
+            reset_expiry_hours=max(global_settings.password_reset_expiry_hours, 1),
+        )
 
     @app.route("/reset-password/<token>", methods=["GET", "POST"])
     def reset_password(token: str):
@@ -1365,7 +1408,12 @@ def create_app():
     def manager_create_invite():
         require_csrf()
         cafe = current_cafe()
+        global_settings = ensure_global_settings()
         settings = ensure_cafe_settings(cafe)
+
+        if not global_settings.allow_global_manager_invites:
+            flash("Manager invites are disabled globally.", "danger")
+            return redirect(url_for("manager_staff"))
 
         if not settings.allow_manager_invites:
             flash("Manager invites are disabled for this cafe.", "danger")
@@ -1618,6 +1666,7 @@ def create_app():
     @require_global_admin
     def admin_create_cafe_post():
         require_csrf()
+        global_settings = ensure_global_settings()
 
         cafe_name = (request.form.get("cafe_name") or "").strip()
         slug = (request.form.get("slug") or "").strip().lower()
@@ -1644,7 +1693,7 @@ def create_app():
         db.session.add(cafe)
         db.session.flush()
 
-        db.session.add(CafeSettings(cafe_id=cafe.id))
+        db.session.add(build_default_cafe_settings(cafe.id, global_settings))
 
         if manager_email:
             manager_user = User.query.filter_by(email=manager_email).first()
@@ -1682,6 +1731,57 @@ def create_app():
         db.session.commit()
         flash(f"Created cafe '{cafe.name}'.", "success")
         return redirect(url_for("select_cafe"))
+
+    @app.route("/admin/settings", methods=["GET", "POST"])
+    @require_login
+    @require_global_admin
+    def admin_global_settings():
+        settings = ensure_global_settings()
+
+        if request.method == "POST":
+            require_csrf()
+
+            site_name = (request.form.get("site_name") or "").strip()
+            if site_name:
+                settings.site_name = site_name
+
+            password_reset_expiry_hours = (request.form.get("password_reset_expiry_hours") or "").strip()
+            if password_reset_expiry_hours.isdigit():
+                settings.password_reset_expiry_hours = max(int(password_reset_expiry_hours), 1)
+
+            default_stamps_required = (request.form.get("default_stamps_required") or "").strip()
+            if default_stamps_required.isdigit():
+                settings.default_stamps_required = max(int(default_stamps_required), 1)
+
+            default_points_required = (request.form.get("default_points_required") or "").strip()
+            if default_points_required.isdigit():
+                settings.default_points_required = max(int(default_points_required), 1)
+
+            default_points_per_purchase = (request.form.get("default_points_per_purchase") or "").strip()
+            if default_points_per_purchase.isdigit():
+                settings.default_points_per_purchase = max(int(default_points_per_purchase), 1)
+
+            default_invite_expiry_days = (request.form.get("default_invite_expiry_days") or "").strip()
+            if default_invite_expiry_days.isdigit():
+                settings.default_invite_expiry_days = max(int(default_invite_expiry_days), 1)
+
+            default_reward_name = (request.form.get("default_reward_name") or "").strip()
+            if default_reward_name:
+                settings.default_reward_name = default_reward_name
+
+            default_welcome_message = (request.form.get("default_welcome_message") or "").strip()
+            if default_welcome_message:
+                settings.default_welcome_message = default_welcome_message
+
+            settings.allow_public_registration = request.form.get("allow_public_registration") == "on"
+            settings.allow_global_manager_invites = request.form.get("allow_global_manager_invites") == "on"
+            settings.default_allow_manager_invites = request.form.get("default_allow_manager_invites") == "on"
+
+            db.session.commit()
+            flash("Global settings updated.", "success")
+            return redirect(url_for("admin_global_settings"))
+
+        return render_template("admin_global_settings.html", settings=settings)
 
     # ---------------------------
     # Admin user management

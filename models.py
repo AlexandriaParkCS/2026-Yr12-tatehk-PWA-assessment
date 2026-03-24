@@ -5,6 +5,27 @@ from flask_sqlalchemy import SQLAlchemy
 db = SQLAlchemy()
 
 
+class GlobalSettings(db.Model):
+    __tablename__ = "global_settings"
+
+    id = db.Column(db.Integer, primary_key=True, default=1)
+
+    site_name = db.Column(db.String(120), nullable=False, default="Coffee Loyalty")
+    allow_public_registration = db.Column(db.Boolean, nullable=False, default=True)
+    allow_global_manager_invites = db.Column(db.Boolean, nullable=False, default=True)
+    password_reset_expiry_hours = db.Column(db.Integer, nullable=False, default=1)
+
+    default_stamps_required = db.Column(db.Integer, nullable=False, default=9)
+    default_points_required = db.Column(db.Integer, nullable=False, default=100)
+    default_points_per_purchase = db.Column(db.Integer, nullable=False, default=10)
+    default_reward_name = db.Column(db.String(80), nullable=False, default="Free Coffee")
+    default_welcome_message = db.Column(db.String(255), nullable=False, default="Welcome back!")
+    default_invite_expiry_days = db.Column(db.Integer, nullable=False, default=7)
+    default_allow_manager_invites = db.Column(db.Boolean, nullable=False, default=True)
+
+    updated_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
 class Cafe(db.Model):
     __tablename__ = "cafes"
 
