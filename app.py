@@ -507,6 +507,8 @@ def create_app():
             return redirect(url_for("login"))
 
         if invite.expires_at and invite.expires_at < datetime.utcnow():
+            invite.is_active = False
+            db.session.commit()
             flash("This invite has expired.", "danger")
             return redirect(url_for("login"))
 
@@ -1110,7 +1112,9 @@ def create_app():
             rows.append((u, m))
 
         invites = (
-            StaffInvite.query.filter_by(cafe_id=cafe.id)
+            StaffInvite.query.filter_by(cafe_id=cafe.id, is_active=True)
+            .filter(StaffInvite.accepted_at.is_(None))
+            .filter(StaffInvite.expires_at >= datetime.utcnow())
             .order_by(StaffInvite.created_at.desc())
             .all()
         )
@@ -1309,6 +1313,42 @@ def create_app():
         flash("Invite created.", "success")
         return redirect(url_for("manager_staff"))
 
+    @app.post("/manager/invites/revoke")
+    @require_login
+    @require_cafe_selected
+    @require_role_in_cafe("manager")
+    def manager_revoke_invite():
+        require_csrf()
+        cafe = current_cafe()
+
+        invite_id = (request.form.get("invite_id") or "").strip()
+        if not invite_id.isdigit():
+            flash("Invalid invite.", "danger")
+            return redirect(url_for("manager_staff"))
+
+        invite = db.session.get(StaffInvite, int(invite_id))
+        if not invite or invite.cafe_id != cafe.id:
+            flash("Invite not found.", "danger")
+            return redirect(url_for("manager_staff"))
+
+        if not invite.is_active or invite.accepted_at:
+            flash("Invite is no longer active.", "warning")
+            return redirect(url_for("manager_staff"))
+
+        invite.is_active = False
+        db.session.commit()
+
+        log_activity(
+            cafe_id=cafe.id,
+            actor_user_id=current_user().id,
+            target_user_id=current_user().id,
+            action="invite_revoked",
+            note=f"Invite revoked for {invite.email}"
+        )
+
+        flash("Invite revoked.", "success")
+        return redirect(url_for("manager_staff"))
+
     # ---------------------------
     # Settings
     # ---------------------------
@@ -1356,7 +1396,7 @@ def create_app():
             cafe.card_style = card_style
 
         loyalty_type = (request.form.get("loyalty_type") or settings.loyalty_type).strip().lower()
-        if loyalty_type in ("stamps", "points", "tiered_points"):
+        if loyalty_type in ("stamps", "points"):
             settings.loyalty_type = loyalty_type
 
         stamps_required = (request.form.get("stamps_required") or "").strip()

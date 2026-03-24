@@ -192,6 +192,7 @@
             <th>Role</th>
             <th>Expires</th>
             <th>Invite Link</th>
+            <th style="width: 120px;"></th>
           </tr>
         </thead>
 
@@ -213,6 +214,14 @@
               onclick="this.select()"
               readonly
             >
+          </td>
+
+          <td class="text-end">
+            <form method="post" action="{{ url_for('manager_revoke_invite') }}" class="m-0">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+              <input type="hidden" name="invite_id" value="{{ invite.id }}">
+              <button class="btn btn-sm btn-outline-danger" type="submit">Revoke</button>
+            </form>
           </td>
 
         </tr>
