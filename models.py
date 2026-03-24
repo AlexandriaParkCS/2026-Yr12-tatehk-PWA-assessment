@@ -101,6 +101,12 @@ class User(db.Model):
         cascade="all, delete-orphan",
     )
 
+    password_reset_tokens = db.relationship(
+        "PasswordResetToken",
+        back_populates="user",
+        cascade="all, delete-orphan",
+    )
+
     activity_as_actor = db.relationship(
         "ActivityLog",
         foreign_keys="ActivityLog.actor_user_id",
@@ -293,6 +299,30 @@ class StaffInvite(db.Model):
     created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
 
     cafe = db.relationship("Cafe", back_populates="invites")
+
+
+class PasswordResetToken(db.Model):
+    __tablename__ = "password_reset_tokens"
+
+    id = db.Column(db.Integer, primary_key=True)
+
+    user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False, index=True)
+    token = db.Column(
+        db.String(64),
+        unique=True,
+        nullable=False,
+        default=lambda: secrets.token_urlsafe(32),
+    )
+
+    expires_at = db.Column(
+        db.DateTime,
+        nullable=False,
+        default=lambda: datetime.utcnow() + timedelta(hours=1),
+    )
+    used_at = db.Column(db.DateTime, nullable=True)
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+
+    user = db.relationship("User", back_populates="password_reset_tokens")
 
 
 class Notification(db.Model):

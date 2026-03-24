@@ -9,7 +9,7 @@ import qrcode
 from flask import (
     Flask, render_template, request, redirect,
     url_for, session, flash, abort,
-    send_file, jsonify
+    send_file, jsonify, send_from_directory
 )
 from werkzeug.security import generate_password_hash, check_password_hash
 from sqlalchemy import or_, and_, func
@@ -24,6 +24,7 @@ from models import (
     LoyaltyCard,
     ActivityLog,
     StaffInvite,
+    PasswordResetToken,
     Notification,
 )
 
@@ -233,6 +234,17 @@ def create_notification(user_id: int, cafe_id: int | None, title: str, message: 
     db.session.commit()
 
 
+def get_valid_password_reset(token: str) -> PasswordResetToken | None:
+    reset = PasswordResetToken.query.filter_by(token=token).first()
+    if not reset:
+        return None
+    if reset.used_at is not None:
+        return None
+    if reset.expires_at < datetime.utcnow():
+        return None
+    return reset
+
+
 # ---------------------------
 # App factory
 # ---------------------------
@@ -413,6 +425,10 @@ def create_app():
     def index():
         return render_template("index.html")
 
+    @app.get("/favicon.ico")
+    def favicon():
+        return send_from_directory(app.root_path, "favicon.ico", mimetype="image/x-icon")
+
     @app.route("/register", methods=["GET", "POST"])
     def register():
         if request.method == "POST":
@@ -488,6 +504,79 @@ def create_app():
             return redirect(url_for("select_cafe"))
 
         return render_template("login.html")
+
+    @app.route("/forgot-password", methods=["GET", "POST"])
+    def forgot_password():
+        reset_url = None
+
+        if request.method == "POST":
+            require_csrf()
+
+            email = (request.form.get("email") or "").strip().lower()
+            if not email:
+                flash("Email is required.", "danger")
+                return redirect(url_for("forgot_password"))
+
+            user = User.query.filter_by(email=email).first()
+            if not user or not user.is_active:
+                flash("If that email exists, a reset link is ready.", "info")
+                return render_template("forgot_password.html", reset_url=None)
+
+            active_tokens = PasswordResetToken.query.filter_by(user_id=user.id, used_at=None).all()
+            now = datetime.utcnow()
+            for token_row in active_tokens:
+                token_row.used_at = now
+
+            reset = PasswordResetToken(
+                user_id=user.id,
+                expires_at=now + timedelta(hours=1),
+            )
+            db.session.add(reset)
+            db.session.commit()
+
+            reset_url = url_for("reset_password", token=reset.token, _external=True)
+            flash("Reset link generated. This project does not send email yet, so use the link below.", "success")
+
+        return render_template("forgot_password.html", reset_url=reset_url)
+
+    @app.route("/reset-password/<token>", methods=["GET", "POST"])
+    def reset_password(token: str):
+        reset = get_valid_password_reset(token)
+        if not reset:
+            flash("That password reset link is invalid or expired.", "danger")
+            return redirect(url_for("forgot_password"))
+
+        if request.method == "POST":
+            require_csrf()
+
+            password = request.form.get("password") or ""
+            confirm_password = request.form.get("confirm_password") or ""
+
+            if len(password) < 8:
+                flash("Password must be at least 8 characters.", "danger")
+                return redirect(url_for("reset_password", token=token))
+            if password != confirm_password:
+                flash("Passwords do not match.", "danger")
+                return redirect(url_for("reset_password", token=token))
+
+            user = db.session.get(User, reset.user_id)
+            if not user or not user.is_active:
+                flash("Account not available for password reset.", "danger")
+                return redirect(url_for("forgot_password"))
+
+            user.password_hash = generate_password_hash(password)
+
+            now = datetime.utcnow()
+            open_tokens = PasswordResetToken.query.filter_by(user_id=user.id, used_at=None).all()
+            for token_row in open_tokens:
+                token_row.used_at = now
+
+            db.session.commit()
+
+            flash("Password updated. You can log in now.", "success")
+            return redirect(url_for("login"))
+
+        return render_template("reset_password.html", token=token)
 
     @app.post("/logout")
     def logout():

@@ -6,6 +6,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 
 <title>Coffee Loyalty</title>
+<link rel="icon" href="{{ url_for('favicon') }}" type="image/x-icon">
 
 <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
 
@@ -20,6 +21,7 @@
   --surface-border: rgba(17, 24, 39, 0.08);
   --nav-bg: linear-gradient(135deg, #1f2328, #111827);
   --nav-text: #ffffff;
+  --nav-muted: rgba(255, 255, 255, 0.72);
 }
 
 body.theme-dark{
@@ -59,10 +61,28 @@ body{
 .navbar{
   backdrop-filter: blur(8px);
   background: var(--nav-bg) !important;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
 }
 
 .main-container{
   max-width:1100px;
+}
+
+.skip-link{
+  position:absolute;
+  left:1rem;
+  top:-3rem;
+  z-index:1100;
+  background: var(--surface-bg);
+  color: var(--page-text);
+  padding:0.65rem 0.9rem;
+  border-radius:0.8rem;
+  border:1px solid var(--surface-border);
+  text-decoration:none;
+}
+
+.skip-link:focus{
+  top:1rem;
 }
 
 .notification-badge{
@@ -74,6 +94,7 @@ body{
   align-items:center;
   gap:0.65rem;
   color: var(--nav-text) !important;
+  min-width:0;
 }
 
 .brand-logo{
@@ -84,6 +105,133 @@ body{
   background:#fff;
   padding:2px;
   box-shadow:0 6px 18px rgba(0,0,0,0.18);
+}
+
+.brand-copy{
+  display:flex;
+  flex-direction:column;
+  min-width:0;
+}
+
+.brand-title{
+  font-size:1rem;
+  font-weight:700;
+  line-height:1.1;
+}
+
+.brand-subtitle{
+  font-size:0.78rem;
+  color: var(--nav-muted);
+  line-height:1.1;
+}
+
+.navbar-toggler{
+  border-color: rgba(255,255,255,0.24);
+}
+
+.nav-layout{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:1rem;
+  width:100%;
+}
+
+.nav-cluster{
+  display:flex;
+  align-items:center;
+  flex-wrap:wrap;
+  gap:0.75rem;
+}
+
+.nav-chip{
+  display:inline-flex;
+  align-items:center;
+  gap:0.45rem;
+  padding:0.55rem 0.85rem;
+  border-radius:999px;
+  color: rgba(255,255,255,0.92);
+  text-decoration:none;
+  border:1px solid rgba(255,255,255,0.12);
+  background: rgba(255,255,255,0.04);
+  transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+.nav-chip:hover,
+.nav-chip:focus,
+.nav-chip.active{
+  color:#fff;
+  background: rgba(255,255,255,0.14);
+  border-color: rgba(255,255,255,0.26);
+}
+
+.nav-chip-muted{
+  color: var(--nav-muted);
+}
+
+.nav-group-label{
+  font-size:0.72rem;
+  text-transform:uppercase;
+  letter-spacing:0.08em;
+  color: var(--nav-muted);
+  margin-bottom:0.2rem;
+}
+
+.nav-stack{
+  display:flex;
+  flex-direction:column;
+  gap:0.15rem;
+}
+
+.nav-menu-group{
+  display:flex;
+  align-items:center;
+  gap:0.5rem;
+  flex-wrap:wrap;
+}
+
+.nav-dropdown-toggle{
+  display:inline-flex;
+  align-items:center;
+  gap:0.45rem;
+}
+
+.nav-status{
+  display:flex;
+  flex-direction:column;
+  gap:0.15rem;
+  padding:0.15rem 0;
+}
+
+.nav-status strong{
+  color:#fff;
+}
+
+.nav-status span{
+  color: var(--nav-muted);
+  font-size:0.82rem;
+}
+
+.dropdown-menu{
+  border-radius: 18px;
+  padding:0.65rem;
+  min-width: 240px;
+}
+
+.dropdown-item{
+  border-radius: 12px;
+  padding:0.6rem 0.75rem;
+}
+
+.dropdown-item.active,
+.dropdown-item:active{
+  background: color-mix(in srgb, var(--cafe-accent) 14%, transparent);
+  color: var(--page-text);
+}
+
+.menu-note{
+  font-size:0.78rem;
+  color: var(--nav-muted);
 }
 
 .card,
@@ -165,11 +313,48 @@ body.theme-dark .small.text-muted,
 body.theme-dark .table-light{
   color: #aab4c3 !important;
 }
+
+@media (max-width: 991.98px){
+  .nav-layout{
+    align-items:stretch;
+    flex-direction:column;
+    padding-top:1rem;
+  }
+
+  .nav-cluster{
+    width:100%;
+    flex-direction:column;
+    align-items:stretch;
+  }
+
+  .nav-menu-group{
+    flex-direction:column;
+    align-items:stretch;
+  }
+
+  .nav-chip,
+  .nav-dropdown-toggle,
+  .nav-cluster .btn,
+  .nav-cluster form .btn{
+    width:100%;
+    justify-content:center;
+  }
+
+  .nav-status{
+    padding-bottom:0.6rem;
+    border-bottom:1px solid rgba(255,255,255,0.12);
+  }
+
+  .dropdown-menu{
+    width:100%;
+  }
+}
 </style>
 
 </head>
 
 <body class="theme-{{ active_cafe.theme_mode if active_cafe else 'light' }} card-{{ active_cafe.card_style if active_cafe else 'rounded' }}">
+<a href="#main-content" class="skip-link">Skip to content</a>
 
 <!-- NAVBAR -->
 <nav class="navbar navbar-expand-lg navbar-dark sticky-top">
@@ -179,150 +364,161 @@ body.theme-dark .table-light{
 {% if active_cafe and active_cafe.logo_url %}
 <img src="{{ active_cafe.logo_url }}" alt="{{ active_cafe.name }} logo" class="brand-logo">
 {% endif %}
-<span>{{ active_cafe.name if active_cafe else 'Coffee Loyalty' }}</span>
+<span class="brand-copy">
+<span class="brand-title">{{ active_cafe.name if active_cafe else 'Coffee Loyalty' }}</span>
+<span class="brand-subtitle">
+{% if active_cafe %}
+Loyalty and staff hub
+{% else %}
+Cafe rewards and team tools
+{% endif %}
+</span>
+</span>
 </a>
 
-<button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navMenu">
+<button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navMenu" aria-controls="navMenu" aria-expanded="false" aria-label="Toggle navigation menu">
 <span class="navbar-toggler-icon"></span>
 </button>
 
 <div class="collapse navbar-collapse" id="navMenu">
-
-<div class="ms-auto d-flex flex-wrap align-items-center gap-2 mt-3 mt-lg-0">
+<div class="nav-layout ms-lg-4">
 
 {% if me %}
 
-{% if active_cafe %}
-<span class="badge bg-secondary px-3 py-2">
-{{ active_cafe.name }}
-</span>
+<div class="nav-cluster">
+<div class="nav-status" aria-label="Current account">
+<strong>{{ me.username }}</strong>
+<span>
+{% if me_is_admin %}
+Global admin
+{% elif me_membership %}
+{{ me_membership.role|capitalize }} at {{ active_cafe.name if active_cafe else 'selected cafe' }}
+{% elif active_cafe %}
+Customer at {{ active_cafe.name }}
+{% else %}
+Signed in
 {% endif %}
+</span>
+</div>
 
-<!-- Customer -->
+<div class="nav-stack" aria-label="Workspace navigation">
+<div class="nav-group-label">Navigate</div>
+<div class="nav-menu-group">
 {% if active_cafe and not me_is_admin and not me_membership %}
-<a class="btn btn-outline-light btn-sm"
-href="{{ url_for('card') }}">
+<a class="nav-chip {% if request.endpoint == 'card' %}active{% endif %}"
+href="{{ url_for('card') }}"
+aria-current="{% if request.endpoint == 'card' %}page{% endif %}">
 My Card
 </a>
 {% endif %}
 
-<!-- Staff -->
 {% if active_cafe and (me_is_admin or (me_membership and me_membership.role in ['staff','manager'])) %}
-<a class="btn btn-outline-info btn-sm"
-href="{{ url_for('staff_home') }}">
-Staff
+<a class="nav-chip {% if request.endpoint == 'staff_home' %}active{% endif %}"
+href="{{ url_for('staff_home') }}"
+aria-current="{% if request.endpoint == 'staff_home' %}page{% endif %}">
+Staff Workspace
 </a>
 {% endif %}
 
-<!-- Manager -->
 {% if active_cafe and (me_is_admin or (me_membership and me_membership.role == 'manager')) %}
-<a class="btn btn-outline-primary btn-sm"
-href="{{ url_for('manager_dashboard') }}">
-Manager
-</a>
-
-<a class="btn btn-outline-primary btn-sm"
-href="{{ url_for('manager_staff') }}">
-Manage Staff
-</a>
-
-<a class="btn btn-outline-primary btn-sm"
-href="{{ url_for('cafe_settings') }}">
-Settings
-</a>
+<div class="dropdown">
+<button class="nav-chip nav-dropdown-toggle dropdown-toggle {% if request.endpoint in ['manager_dashboard', 'manager_staff', 'cafe_settings'] %}active{% endif %}"
+type="button"
+data-bs-toggle="dropdown"
+aria-expanded="false">
+Manager Tools
+</button>
+<div class="dropdown-menu dropdown-menu-end">
+<div class="nav-group-label px-2">Manager</div>
+<a class="dropdown-item {% if request.endpoint == 'manager_dashboard' %}active{% endif %}" href="{{ url_for('manager_dashboard') }}">Dashboard</a>
+<a class="dropdown-item {% if request.endpoint == 'manager_staff' %}active{% endif %}" href="{{ url_for('manager_staff') }}">Manage Staff</a>
+<a class="dropdown-item {% if request.endpoint == 'cafe_settings' %}active{% endif %}" href="{{ url_for('cafe_settings') }}">Cafe Settings</a>
+</div>
+</div>
 {% endif %}
 
-<!-- QR page -->
-<a class="btn btn-outline-light btn-sm"
-href="{{ url_for('my_qr') }}">
+{% if me_is_admin %}
+<div class="dropdown">
+<button class="nav-chip nav-dropdown-toggle dropdown-toggle {% if request.endpoint in ['admin_create_cafe', 'admin_users'] %}active{% endif %}"
+type="button"
+data-bs-toggle="dropdown"
+aria-expanded="false">
+Admin
+</button>
+<div class="dropdown-menu dropdown-menu-end">
+<div class="nav-group-label px-2">Administration</div>
+<a class="dropdown-item {% if request.endpoint == 'admin_create_cafe' %}active{% endif %}" href="{{ url_for('admin_create_cafe') }}">Create Cafe</a>
+<a class="dropdown-item {% if request.endpoint == 'admin_users' %}active{% endif %}" href="{{ url_for('admin_users') }}">Manage Users</a>
+</div>
+</div>
+{% endif %}
+{% if active_cafe %}
+<a class="nav-chip {% if request.endpoint == 'my_qr' %}active{% endif %}"
+href="{{ url_for('my_qr') }}"
+aria-current="{% if request.endpoint == 'my_qr' %}page{% endif %}">
 My QR
 </a>
-
-<!-- Switch cafe -->
-<a class="btn btn-outline-light btn-sm"
-href="{{ url_for('select_cafe') }}">
+{% endif %}
+<a class="nav-chip nav-chip-muted {% if request.endpoint == 'select_cafe' %}active{% endif %}"
+href="{{ url_for('select_cafe') }}"
+aria-current="{% if request.endpoint == 'select_cafe' %}page{% endif %}">
 Switch Cafe
 </a>
+</div>
+</div>
+</div>
 
-<!-- Notifications -->
-{% if unread_notifications %}
+<div class="nav-cluster justify-content-lg-end">
 <div class="dropdown">
-
-<button class="btn btn-outline-warning btn-sm dropdown-toggle"
-data-bs-toggle="dropdown">
-
+<button class="nav-chip nav-dropdown-toggle {% if unread_notifications %}active{% endif %}"
+type="button"
+data-bs-toggle="dropdown"
+aria-expanded="false"
+aria-label="Notifications">
 Notifications
+{% if unread_notifications %}
 <span class="badge bg-danger notification-badge">
 {{ unread_notifications|length }}
 </span>
-
+{% endif %}
 </button>
 
-<div class="dropdown-menu dropdown-menu-end p-2" style="width:300px">
-
+<div class="dropdown-menu dropdown-menu-end">
+{% if unread_notifications %}
+<div class="nav-group-label px-2">Recent Alerts</div>
 {% for n in unread_notifications %}
-
-<div class="border-bottom pb-2 mb-2">
-
-<div class="fw-semibold small">
-{{ n.title }}
-</div>
-
-<div class="small text-muted">
-{{ n.message }}
-</div>
-
-<form method="post"
-action="{{ url_for('mark_notification_read', notification_id=n.id) }}">
-
+<div class="border-bottom px-2 py-2 mb-1">
+<div class="fw-semibold small">{{ n.title }}</div>
+<div class="small text-muted mb-1">{{ n.message }}</div>
+<form method="post" action="{{ url_for('mark_notification_read', notification_id=n.id) }}">
 <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-
-<button class="btn btn-sm btn-link p-0">
-Mark read
-</button>
-
+<button class="btn btn-sm btn-link p-0">Mark read</button>
 </form>
-
 </div>
-
 {% endfor %}
-
-</div>
-
+{% else %}
+<div class="px-2 py-2">
+<div class="fw-semibold small">No new notifications</div>
+<div class="menu-note">Updates will appear here when staff activity changes.</div>
 </div>
 {% endif %}
+</div>
+</div>
 
-<!-- Global admin -->
-{% if me_is_admin %}
-<a class="btn btn-outline-warning btn-sm"
-href="{{ url_for('admin_create_cafe') }}">
-Admin
-</a>
-<a class="btn btn-outline-warning btn-sm"
-     href="{{ url_for('admin_users') }}">
-    Users
-  </a>
-{% endif %}
-
-
-
-<!-- Logout -->
 <form method="post"
 action="{{ url_for('logout') }}"
 class="m-0">
-
 <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-
-<button class="btn btn-warning btn-sm">
-Logout
-</button>
-
+<button class="btn btn-warning btn-sm">Logout</button>
 </form>
+</div>
 
 {% else %}
 
-<a class="btn btn-outline-light btn-sm"
-href="{{ url_for('login') }}">
+<div class="nav-cluster ms-auto">
+<a class="nav-chip {% if request.endpoint == 'login' %}active{% endif %}"
+href="{{ url_for('login') }}"
+aria-current="{% if request.endpoint == 'login' %}page{% endif %}">
 Login
 </a>
 
@@ -330,6 +526,7 @@ Login
 href="{{ url_for('register') }}">
 Register
 </a>
+</div>
 
 {% endif %}
 
@@ -341,7 +538,7 @@ Register
 
 
 <!-- MAIN CONTENT -->
-<main class="container main-container py-4">
+<main class="container main-container py-4" id="main-content" tabindex="-1">
 
 {% with messages = get_flashed_messages(with_categories=true) %}
 {% if messages %}
