@@ -1,0 +1,124 @@
+{% extends "base.html" %}
+{% block content %}
+
+<div class="card shadow-sm border-0 overflow-hidden">
+  <div class="card-body p-0">
+    <div class="p-4 p-lg-5 text-white" style="background: linear-gradient(135deg, {{ cafe.accent_color }}, {{ cafe.secondary_color }});">
+      <div class="d-flex align-items-center gap-3 flex-wrap mb-3">
+        {% if cafe.logo_url %}
+          <img src="{{ cafe.logo_url }}" alt="{{ cafe.name }} logo" style="width:64px; height:64px; object-fit:cover; border-radius:18px; background:#fff;">
+        {% endif %}
+        <div>
+          <div class="text-uppercase small" style="letter-spacing:0.18em;">Cafe</div>
+          <h1 class="display-6 mb-1">{{ cafe.name }}</h1>
+          <p class="mb-0" style="max-width: 720px;">{{ settings.welcome_message or 'Join this cafe to collect rewards, track your visits, and keep your loyalty card in one place.' }}</p>
+        </div>
+      </div>
+
+      <div class="d-flex flex-wrap gap-2 mt-4">
+        <a class="btn btn-light btn-sm" href="{{ url_for('login') }}">Log In</a>
+        {% if global_settings.allow_public_registration %}
+          <a class="btn btn-outline-light btn-sm" href="{{ url_for('register') }}">Create Account</a>
+        {% endif %}
+      </div>
+    </div>
+
+    <div class="p-4 p-lg-5">
+      <div class="row g-3 mb-4">
+        <div class="col-6 col-lg-3">
+          <div class="rounded-4 border p-3 bg-body-tertiary h-100">
+            <div class="text-muted small">Reward</div>
+            <div class="fw-semibold">{{ settings.reward_name }}</div>
+          </div>
+        </div>
+        <div class="col-6 col-lg-3">
+          <div class="rounded-4 border p-3 bg-body-tertiary h-100">
+            <div class="text-muted small">Loyalty Type</div>
+            <div class="fw-semibold">{{ settings.loyalty_type.replace('_', ' ')|title }}</div>
+          </div>
+        </div>
+        <div class="col-6 col-lg-3">
+          <div class="rounded-4 border p-3 bg-body-tertiary h-100">
+            <div class="text-muted small">Goal</div>
+            <div class="fw-semibold">
+              {% if settings.loyalty_type == 'points' %}
+                {{ settings.points_required }} points
+              {% elif settings.loyalty_type == 'tiered_points' %}
+                Earn points toward reward tiers
+              {% else %}
+                {{ settings.stamps_required }} stamps
+              {% endif %}
+            </div>
+          </div>
+        </div>
+        <div class="col-6 col-lg-3">
+          <div class="rounded-4 border p-3 bg-body-tertiary h-100">
+            <div class="text-muted small">Customers</div>
+            <div class="fw-semibold">{{ total_customers }}</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card border-0 shadow-sm mb-4" style="background:linear-gradient(135deg, rgba(0,0,0,0.03), rgba(255,255,255,0.9));">
+        <div class="card-body p-4">
+          <div class="row g-3">
+            <div class="col-md-4">
+              <div class="text-muted small mb-1">Reward Summary</div>
+              <div class="fw-semibold">{{ settings.reward_name }}</div>
+              <div class="small text-muted">
+                {% if settings.loyalty_type == 'points' %}
+                  Earn {{ settings.points_per_purchase }} points per purchase and redeem at {{ settings.points_required }} points.
+                {% else %}
+                  Collect up to {{ settings.stamps_required }} stamps to unlock your reward.
+                {% endif %}
+              </div>
+            </div>
+            <div class="col-md-4">
+              <div class="text-muted small mb-1">Opening Hours</div>
+              <div>{{ cafe.public_opening_hours or 'Add opening hours in cafe settings.' }}</div>
+            </div>
+            <div class="col-md-4">
+              <div class="text-muted small mb-1">Location</div>
+              <div>{{ cafe.public_location or 'Add a public location in cafe settings.' }}</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="row g-4">
+        <div class="col-lg-7">
+          <h2 class="h5 mb-3">How It Works</h2>
+          <div class="d-flex flex-column gap-3">
+            <div class="rounded-4 border p-3">
+              <div class="fw-semibold mb-1">1. Join or log in</div>
+              <div class="text-muted">Create your account once, then keep your loyalty card across every visit.</div>
+            </div>
+            <div class="rounded-4 border p-3">
+              <div class="fw-semibold mb-1">2. Show your QR code at the counter</div>
+              <div class="text-muted">Staff can find you quickly and update your progress from the staff screen.</div>
+            </div>
+            <div class="rounded-4 border p-3">
+              <div class="fw-semibold mb-1">3. Track rewards in real time</div>
+              <div class="text-muted">Open your card, history, and cafe pages from the same slug link.</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="col-lg-5">
+          <div class="rounded-4 border p-4 h-100 bg-body-tertiary">
+            <h2 class="h5 mb-3">Cafe Info</h2>
+            <p class="mb-2"><strong>Public Link:</strong> /{{ cafe.slug }}/</p>
+            {% if owner_user %}
+              <p class="mb-2"><strong>Cafe Owner:</strong> {{ owner_user.username }}</p>
+            {% endif %}
+            <p class="mb-2"><strong>Join Instructions:</strong></p>
+            <p class="mb-3 text-muted">{{ cafe.public_join_instructions or 'Create an account or log in, then show your QR code to staff on your first visit.' }}</p>
+            <p class="mb-0 text-muted">If you already have an account, log in first and this same link will take you straight into the cafe.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+{% endblock %}

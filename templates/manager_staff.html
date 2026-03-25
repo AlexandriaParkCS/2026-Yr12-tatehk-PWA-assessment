@@ -2,31 +2,32 @@
 {% block content %}
 
 <div class="mb-4">
-  <h1 class="h4 mb-1">Staff Management</h1>
-  <p class="text-muted mb-0">
-    Manage staff members and invites for <strong>{{ active_cafe.name }}</strong>.
-  </p>
+  <div class="d-flex justify-content-between align-items-start flex-wrap gap-3">
+    <div>
+      <h1 class="h4 mb-1">Staff Management</h1>
+      <p class="text-muted mb-0">Manage staff members, invites, and cafe access for <strong>{{ active_cafe.name }}</strong>.</p>
+    </div>
+    {% if owner_membership %}
+      <span class="badge bg-dark">Cafe Owner Protected</span>
+    {% endif %}
+  </div>
 </div>
 
 <div class="d-flex flex-wrap gap-2 mb-4">
-  <a class="btn btn-outline-primary btn-sm" href="{{ url_for('manager_audit') }}">Audit Log</a>
-  <a class="btn btn-outline-primary btn-sm" href="{{ url_for('manager_customers') }}">Customer Search</a>
+  <a class="btn btn-outline-primary btn-sm" href="{{ url_for('cafe_manager_audit', cafe_slug=active_cafe.slug) }}">Audit Log</a>
+  <a class="btn btn-outline-primary btn-sm" href="{{ url_for('cafe_manager_customers', cafe_slug=active_cafe.slug) }}">Customer Search</a>
 </div>
 
 <div class="row g-4">
-
-  <!-- Add Existing Staff -->
-  <div class="col-lg-6">
-    <div class="card shadow-sm border-0" style="border-radius:20px;">
-      <div class="card-body">
-
-        <h5 class="mb-3">Add Existing User</h5>
-
+  <div class="col-xl-6">
+    <div class="card shadow-sm border-0 h-100">
+      <div class="card-body p-4">
+        <h2 class="h5 mb-3">Add Existing User</h2>
         <form method="post" action="{{ url_for('manager_staff_add') }}">
           <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
 
           <div class="mb-3">
-            <label class="form-label">Username or Email</label>
+            <label class="form-label">Username, Email, or Phone</label>
             <input class="form-control" name="identifier" required>
           </div>
 
@@ -38,22 +39,16 @@
             </select>
           </div>
 
-          <button class="btn btn-primary w-100">
-            Add Staff Member
-          </button>
+          <button class="btn btn-primary btn-sm" type="submit">Add Staff Member</button>
         </form>
-
       </div>
     </div>
   </div>
 
-  <!-- Create Invite -->
-  <div class="col-lg-6">
-    <div class="card shadow-sm border-0" style="border-radius:20px;">
-      <div class="card-body">
-
-        <h5 class="mb-3">Create Invite</h5>
-
+  <div class="col-xl-6">
+    <div class="card shadow-sm border-0 h-100">
+      <div class="card-body p-4">
+        <h2 class="h5 mb-3">Create Invite</h2>
         <form method="post" action="{{ url_for('manager_create_invite') }}">
           <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
 
@@ -70,228 +65,160 @@
             </select>
           </div>
 
-          <button class="btn btn-success w-100">
-            Create Invite Link
-          </button>
+          <button class="btn btn-success btn-sm" type="submit">Create Invite Link</button>
         </form>
-
       </div>
     </div>
   </div>
-
 </div>
 
-
-<!-- Staff List -->
-<div class="card shadow-sm border-0 mt-4" style="border-radius:20px;">
-  <div class="card-body">
-
-    <h5 class="mb-3">Current Staff</h5>
+<div class="card shadow-sm border-0 mt-4">
+  <div class="card-body p-4">
+    <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+      <h2 class="h5 mb-0">Current Staff</h2>
+      {% if not rows %}
+        <span class="text-muted small">No staff members yet</span>
+      {% endif %}
+    </div>
 
     {% if rows %}
-    <div class="table-responsive">
-      <table class="table align-middle">
-
-        <thead>
-          <tr>
-            <th>User</th>
-            <th>Email</th>
-            <th>Role</th>
-            <th width="280">Actions</th>
-          </tr>
-        </thead>
-
-        <tbody>
-
+      <div class="d-flex flex-column gap-3">
         {% for user, member in rows %}
-        <tr>
+          <div class="rounded-4 border p-3">
+            <div class="d-flex justify-content-between align-items-start flex-wrap gap-2 mb-3">
+              <div>
+                <div class="fw-semibold">{{ user.username }}</div>
+                <div class="text-muted small">{{ user.email }}</div>
+              </div>
+              <div class="d-flex flex-wrap gap-2">
+                <span class="badge {% if member.role == 'owner' %}bg-dark{% elif member.role == 'manager' %}bg-primary{% else %}text-bg-light border{% endif %}">
+                  {% if member.role == 'owner' %}Cafe Owner{% else %}{{ member.role|title }}{% endif %}
+                </span>
+                {% if member.is_active %}
+                  <span class="badge bg-success">Active</span>
+                {% else %}
+                  <span class="badge bg-secondary">Inactive</span>
+                {% endif %}
+              </div>
+            </div>
 
-          <td>{{ user.username }}</td>
+            <div class="d-flex flex-column gap-2">
+              <form method="post" action="{{ url_for('manager_staff_update') }}" class="d-flex flex-wrap gap-2">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                <input type="hidden" name="member_id" value="{{ member.id }}">
+                <input type="hidden" name="action" value="set_role">
+                <select class="form-select form-select-sm" name="role" style="max-width: 180px;" {% if member.role == 'owner' %}disabled{% endif %}>
+                  <option value="staff" {% if member.role == "staff" %}selected{% endif %}>Staff</option>
+                  <option value="manager" {% if member.role in ["manager", "owner"] %}selected{% endif %}>Manager</option>
+                </select>
+                <button class="btn btn-primary btn-sm" type="submit" {% if member.role == 'owner' %}disabled{% endif %}>Update Role</button>
+              </form>
 
-          <td>{{ user.email }}</td>
+              <div class="d-flex flex-wrap gap-2">
+                <form method="post" action="{{ url_for('manager_staff_update') }}">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                  <input type="hidden" name="member_id" value="{{ member.id }}">
+                  <input type="hidden" name="action" value="deactivate">
+                  <button class="btn btn-danger btn-sm" type="submit" {% if member.role == 'owner' %}disabled{% endif %}>Remove</button>
+                </form>
 
-          <td>
-            <form method="post" action="{{ url_for('manager_staff_update') }}" class="d-flex gap-2">
-              <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-              <input type="hidden" name="member_id" value="{{ member.id }}">
-              <input type="hidden" name="action" value="set_role">
+                <form method="post" action="{{ url_for('manager_staff_set_password') }}">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                  <input type="hidden" name="member_id" value="{{ member.id }}">
+                  <button class="btn btn-warning btn-sm" type="submit">Send Reset Email</button>
+                </form>
+              </div>
 
-              <select class="form-select form-select-sm" name="role">
-                <option value="staff" {% if member.role == "staff" %}selected{% endif %}>Staff</option>
-                <option value="manager" {% if member.role == "manager" %}selected{% endif %}>Manager</option>
-              </select>
-
-              <button class="btn btn-sm btn-primary">
-                Update
-              </button>
-            </form>
-          </td>
-
-          <td class="d-flex flex-wrap gap-2">
-
-            <!-- Remove -->
-            <form method="post" action="{{ url_for('manager_staff_update') }}">
-              <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-              <input type="hidden" name="member_id" value="{{ member.id }}">
-              <input type="hidden" name="action" value="deactivate">
-
-              <button class="btn btn-sm btn-danger">
-                Remove
-              </button>
-            </form>
-
-            <!-- Reset Password -->
-            <form method="post" action="{{ url_for('manager_staff_set_password') }}" class="d-flex gap-1">
-
-              <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-              <input type="hidden" name="member_id" value="{{ member.id }}">
-
-              <input
-                type="password"
-                name="new_password"
-                class="form-control form-control-sm"
-                placeholder="New password"
-                minlength="8"
-                required
-              >
-
-              <button class="btn btn-sm btn-warning">
-                Reset
-              </button>
-
-            </form>
-
-          </td>
-
-        </tr>
+              {% if member.role == 'owner' %}
+                <div class="text-muted small">Cafe owners can only be changed by an admin.</div>
+              {% endif %}
+            </div>
+          </div>
         {% endfor %}
-
-        </tbody>
-
-      </table>
-    </div>
+      </div>
     {% else %}
-
-    <p class="text-muted">No staff members yet.</p>
-
+      <div class="alert alert-info mb-0">
+        Start by adding an existing user or sending an invite. The first manager created for a cafe becomes the cafe owner.
+      </div>
     {% endif %}
-
   </div>
 </div>
 
-
-<!-- Active Invites -->
-<div class="card shadow-sm border-0 mt-4" style="border-radius:20px;">
-  <div class="card-body">
-
-    <h5 class="mb-3">Active Invites</h5>
-
+<div class="card shadow-sm border-0 mt-4">
+  <div class="card-body p-4">
+    <h2 class="h5 mb-3">Active Invites</h2>
     {% if invites %}
-
-    <div class="table-responsive">
-      <table class="table align-middle">
-
-        <thead>
-          <tr>
-            <th>Email</th>
-            <th>Role</th>
-            <th>Expires</th>
-            <th>Invite Link</th>
-            <th style="width: 120px;"></th>
-          </tr>
-        </thead>
-
-        <tbody>
-
+      <div class="d-flex flex-column gap-3">
         {% for invite in invites %}
-        <tr>
-
-          <td>{{ invite.email }}</td>
-
-          <td>{{ invite.role }}</td>
-
-          <td>{{ invite.expires_at }}</td>
-
-          <td>
-            <input
-              class="form-control"
-              value="{{ request.url_root }}invite/{{ invite.token }}"
-              onclick="this.select()"
-              readonly
-            >
-          </td>
-
-          <td class="text-end">
-            <form method="post" action="{{ url_for('manager_revoke_invite') }}" class="m-0">
-              <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-              <input type="hidden" name="invite_id" value="{{ invite.id }}">
-              <button class="btn btn-sm btn-outline-danger" type="submit">Revoke</button>
-            </form>
-          </td>
-
-        </tr>
+          <div class="rounded-4 border p-3">
+            <div class="d-flex justify-content-between align-items-start flex-wrap gap-2 mb-2">
+              <div>
+                <div class="fw-semibold">{{ invite.email }}</div>
+                <div class="text-muted small">Expires {{ invite.expires_at }}</div>
+              </div>
+              <span class="badge {% if invite.role == 'manager' %}bg-primary{% else %}text-bg-light border{% endif %}">{{ invite.role|title }}</span>
+            </div>
+            <div class="mb-3">
+              <input class="form-control form-control-sm" value="{{ request.url_root }}invite/{{ invite.token }}" onclick="this.select()" readonly>
+            </div>
+            <div class="d-flex flex-wrap gap-2">
+              <form method="post" action="{{ url_for('manager_resend_invite') }}">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                <input type="hidden" name="invite_id" value="{{ invite.id }}">
+                <button class="btn btn-outline-primary btn-sm" type="submit">Resend</button>
+              </form>
+              <form method="post" action="{{ url_for('manager_revoke_invite') }}">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                <input type="hidden" name="invite_id" value="{{ invite.id }}">
+                <button class="btn btn-outline-danger btn-sm" type="submit">Revoke</button>
+              </form>
+            </div>
+          </div>
         {% endfor %}
-
-        </tbody>
-      </table>
-    </div>
-
+      </div>
     {% else %}
-
-    <p class="text-muted">No active invites.</p>
-
+      <p class="text-muted mb-0">No active invites.</p>
     {% endif %}
-
   </div>
 </div>
 
-<div class="card shadow-sm border-0 mt-4" style="border-radius:20px;">
-  <div class="card-body">
+<div class="card shadow-sm border-0 mt-4">
+  <div class="card-body p-4">
     <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
-      <h5 class="mb-0">Invite History</h5>
-      <form method="get" class="d-flex gap-2">
+      <h2 class="h5 mb-0">Invite History</h2>
+      <form method="get" class="d-flex gap-2 flex-wrap">
         <select class="form-select form-select-sm" name="invite_status">
           <option value="active" {% if invite_status == 'active' %}selected{% endif %}>Active</option>
           <option value="accepted" {% if invite_status == 'accepted' %}selected{% endif %}>Accepted</option>
           <option value="revoked" {% if invite_status == 'revoked' %}selected{% endif %}>Revoked</option>
           <option value="expired" {% if invite_status == 'expired' %}selected{% endif %}>Expired</option>
         </select>
-        <button class="btn btn-sm btn-outline-primary" type="submit">Filter</button>
+        <button class="btn btn-outline-primary btn-sm" type="submit">Filter</button>
       </form>
     </div>
 
     {% if invite_history %}
-      <div class="table-responsive">
-        <table class="table table-sm align-middle mb-0">
-          <thead>
-            <tr>
-              <th>Email</th>
-              <th>Role</th>
-              <th>Created</th>
-              <th>Status</th>
-            </tr>
-          </thead>
-          <tbody>
-            {% for invite in invite_history %}
-              <tr>
-                <td>{{ invite.email }}</td>
-                <td>{{ invite.role }}</td>
-                <td>{{ invite.created_at }}</td>
-                <td>
-                  {% if invite.accepted_at %}
-                    <span class="badge bg-success">Accepted</span>
-                  {% elif not invite.is_active and not invite.accepted_at %}
-                    <span class="badge bg-secondary">Revoked</span>
-                  {% elif invite.expires_at < current_time %}
-                    <span class="badge bg-warning text-dark">Expired</span>
-                  {% else %}
-                    <span class="badge bg-primary">Active</span>
-                  {% endif %}
-                </td>
-              </tr>
-            {% endfor %}
-          </tbody>
-        </table>
+      <div class="d-flex flex-column gap-2">
+        {% for invite in invite_history %}
+          <div class="rounded-4 border p-3 d-flex justify-content-between align-items-start flex-wrap gap-2">
+            <div>
+              <div class="fw-semibold">{{ invite.email }}</div>
+              <div class="text-muted small">Created {{ invite.created_at }}</div>
+            </div>
+            <div class="d-flex flex-wrap gap-2 align-items-center">
+              <span class="badge {% if invite.role == 'manager' %}bg-primary{% else %}text-bg-light border{% endif %}">{{ invite.role|title }}</span>
+              {% if invite.accepted_at %}
+                <span class="badge bg-success">Accepted</span>
+              {% elif not invite.is_active and not invite.accepted_at %}
+                <span class="badge bg-secondary">Revoked</span>
+              {% elif invite.expires_at < current_time %}
+                <span class="badge bg-warning text-dark">Expired</span>
+              {% else %}
+                <span class="badge bg-primary">Active</span>
+              {% endif %}
+            </div>
+          </div>
+        {% endfor %}
       </div>
     {% else %}
       <p class="text-muted mb-0">No invites in this view.</p>

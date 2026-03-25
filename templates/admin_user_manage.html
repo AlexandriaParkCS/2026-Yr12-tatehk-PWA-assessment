@@ -1,165 +1,139 @@
 {% extends "base.html" %}
 {% block content %}
 
-<h1 class="h4 mb-3">Manage User: {{ target.username }}</h1>
+<div class="d-flex justify-content-between align-items-start flex-wrap gap-3 mb-4">
+  <div>
+    <h1 class="h4 mb-1">Manage User: {{ target.username }}</h1>
+    <p class="text-muted mb-0">{{ target.email }}</p>
+    {% if target.pending_email %}
+      <p class="text-muted small mb-0">Pending email change: {{ target.pending_email }}</p>
+    {% endif %}
+  </div>
+  <div class="d-flex flex-wrap gap-2">
+    {% if target.is_active %}
+      <span class="badge bg-success">Active</span>
+    {% else %}
+      <span class="badge bg-danger">Suspended</span>
+    {% endif %}
+    {% if not target.requires_email_verification %}
+      <span class="badge bg-success">Verified</span>
+    {% else %}
+      <span class="badge bg-warning text-dark">Unverified</span>
+    {% endif %}
+    {% if target.requires_password_setup %}
+      <span class="badge bg-info text-dark">Pending Setup</span>
+    {% endif %}
+    {% if target.is_global_admin %}
+      <span class="badge bg-dark">Global Admin</span>
+    {% endif %}
+  </div>
+</div>
 
 <div class="row g-4">
-
-  <!-- Basic info / controls -->
   <div class="col-lg-4">
+    <div class="card shadow-sm border-0">
+      <div class="card-body p-4">
+        <h2 class="h6 mb-3">Account Controls</h2>
 
-    <div class="card shadow-sm">
-      <div class="card-body">
-
-        <p><strong>Email:</strong> {{ target.email }}</p>
-        <p>
-          <strong>Status:</strong>
-          {% if target.is_active %}
-            <span class="badge bg-success">Active</span>
-          {% else %}
-            <span class="badge bg-danger">Inactive</span>
-          {% endif %}
-        </p>
-
-        <hr>
-
-        <!-- Toggle active -->
-        <form method="post"
-              action="{{ url_for('admin_user_update', user_id=target.id) }}"
-              class="mb-2">
+        <form method="post" action="{{ url_for('admin_user_update', user_id=target.id) }}" class="mb-2">
           <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
           <input type="hidden" name="action" value="toggle_active">
-          <button class="btn btn-sm btn-warning w-100">
-            {% if target.is_active %}Deactivate{% else %}Activate{% endif %}
+          <button class="btn btn-warning btn-sm w-100" type="submit">
+            {% if target.is_active %}Suspend User{% else %}Reactivate User{% endif %}
           </button>
         </form>
 
-        <!-- Toggle global admin -->
-        <form method="post"
-              action="{{ url_for('admin_user_update', user_id=target.id) }}"
-              class="mb-2">
+        <form method="post" action="{{ url_for('admin_user_update', user_id=target.id) }}" class="mb-2">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <input type="hidden" name="action" value="send_setup_email">
+          <button class="btn btn-outline-primary btn-sm w-100" type="submit">Resend Setup Email</button>
+        </form>
+
+        <form method="post" action="{{ url_for('admin_user_update', user_id=target.id) }}" class="mb-2">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <input type="hidden" name="action" value="force_password_reset">
+          <button class="btn btn-outline-warning btn-sm w-100" type="submit">Force Password Reset</button>
+        </form>
+
+        <form method="post" action="{{ url_for('admin_user_update', user_id=target.id) }}">
           <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
           <input type="hidden" name="action" value="set_global_admin">
-          <input type="hidden" name="value"
-                 value="{{ 'false' if target.is_global_admin else 'true' }}">
-          <button class="btn btn-sm btn-dark w-100">
-            {% if target.is_global_admin %}
-              Remove Global Admin
-            {% else %}
-              Make Global Admin
-            {% endif %}
+          <input type="hidden" name="value" value="{{ 'false' if target.is_global_admin else 'true' }}">
+          <button class="btn btn-dark btn-sm w-100" type="submit">
+            {% if target.is_global_admin %}Remove Global Admin{% else %}Make Global Admin{% endif %}
           </button>
         </form>
-
-        <hr>
-
-        <!-- Reset password -->
-        <form method="post"
-              action="{{ url_for('admin_user_update', user_id=target.id) }}">
-          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-          <input type="hidden" name="action" value="reset_password">
-
-          <label class="form-label">Reset Password</label>
-          <input type="password" name="password" class="form-control mb-2"
-                 placeholder="New password (8+ chars)" required>
-          <button class="btn btn-sm btn-outline-primary w-100">
-            Update Password
-          </button>
-        </form>
-
       </div>
     </div>
-
   </div>
 
-  <!-- Memberships -->
   <div class="col-lg-8">
-
-    <div class="card shadow-sm mb-3">
-      <div class="card-body">
-
-        <h2 class="h6">Cafe Memberships</h2>
+    <div class="card shadow-sm border-0 mb-4">
+      <div class="card-body p-4">
+        <h2 class="h6 mb-3">Cafe Memberships</h2>
 
         {% if memberships %}
-          <table class="table table-sm">
-            <thead>
-              <tr>
-                <th>Cafe</th>
-                <th>Role</th>
-                <th>Active</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody>
+          <div class="d-flex flex-column gap-3">
+            {% for m in memberships %}
+              <div class="rounded-4 border p-3">
+                <div class="d-flex justify-content-between align-items-start flex-wrap gap-2 mb-3">
+                  <div>
+                    <div class="fw-semibold">{{ cafe_map[m.cafe_id].name if cafe_map.get(m.cafe_id) else 'Unknown Cafe' }}</div>
+                    <div class="text-muted small">Added {{ m.created_at }}</div>
+                  </div>
+                  <div class="d-flex flex-wrap gap-2">
+                    <span class="badge {% if m.is_active %}bg-success{% else %}bg-secondary{% endif %}">{{ 'Active' if m.is_active else 'Inactive' }}</span>
+                    <span class="badge {% if m.role == 'owner' %}bg-dark{% elif m.role == 'manager' %}bg-primary{% else %}text-bg-light border{% endif %}">
+                      {{ m.role|title }}
+                    </span>
+                  </div>
+                </div>
 
-              {% for m in memberships %}
-                <tr>
-                  <td>{{ cafe_map[m.cafe_id].name if cafe_map.get(m.cafe_id) }}</td>
-                  <td>{{ m.role }}</td>
-                  <td>
-                    {% if m.is_active %}
-                      <span class="badge bg-success">Yes</span>
-                    {% else %}
-                      <span class="badge bg-secondary">No</span>
-                    {% endif %}
-                  </td>
-                  <td class="text-end">
+                <div class="d-flex flex-column flex-xl-row gap-2">
+                  <form method="post" action="{{ url_for('admin_user_membership', user_id=target.id) }}" class="d-flex flex-wrap gap-2 flex-grow-1">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                    <input type="hidden" name="action" value="add_or_update">
+                    <input type="hidden" name="cafe_id" value="{{ m.cafe_id }}">
+                    <select name="role" class="form-select form-select-sm" style="max-width: 180px;">
+                      <option value="staff" {% if m.role=='staff' %}selected{% endif %}>Staff</option>
+                      <option value="manager" {% if m.role=='manager' %}selected{% endif %}>Manager</option>
+                      <option value="owner" {% if m.role=='owner' %}selected{% endif %}>Cafe Owner</option>
+                    </select>
+                    <div class="form-check align-self-center">
+                      <input class="form-check-input" type="checkbox" name="is_active" id="active_{{ m.id }}" {% if m.is_active %}checked{% endif %}>
+                      <label class="form-check-label small" for="active_{{ m.id }}">Active</label>
+                    </div>
+                    <button class="btn btn-outline-primary btn-sm" type="submit">Update</button>
+                  </form>
 
-                    <!-- Change role -->
-                    <form method="post"
-                          action="{{ url_for('admin_user_membership', user_id=target.id) }}"
-                          class="d-inline">
-                      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-                      <input type="hidden" name="action" value="add_or_update">
-                      <input type="hidden" name="cafe_id" value="{{ m.cafe_id }}">
-                      <input type="hidden" name="is_active"
-                             value="{{ 'on' if m.is_active else '' }}">
-                      <select name="role" class="form-select form-select-sm d-inline w-auto">
-                        <option value="staff" {% if m.role=='staff' %}selected{% endif %}>Staff</option>
-                        <option value="manager" {% if m.role=='manager' %}selected{% endif %}>Manager</option>
-                      </select>
-                      <button class="btn btn-sm btn-outline-primary">Update</button>
-                    </form>
-
-                    <!-- Remove -->
-                    <form method="post"
-                          action="{{ url_for('admin_user_membership', user_id=target.id) }}"
-                          class="d-inline">
-                      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-                      <input type="hidden" name="action" value="remove">
-                      <input type="hidden" name="member_id" value="{{ m.id }}">
-                      <button class="btn btn-sm btn-outline-danger">
-                        Remove
-                      </button>
-                    </form>
-
-                  </td>
-                </tr>
-              {% endfor %}
-
-            </tbody>
-          </table>
+                  <form method="post" action="{{ url_for('admin_user_membership', user_id=target.id) }}">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                    <input type="hidden" name="action" value="remove">
+                    <input type="hidden" name="member_id" value="{{ m.id }}">
+                    <button class="btn btn-outline-danger btn-sm" type="submit" {% if m.role == 'owner' %}disabled{% endif %}>Remove</button>
+                  </form>
+                </div>
+                {% if m.role == 'owner' %}
+                  <div class="text-muted small mt-2">Transfer the owner role before removing this membership.</div>
+                {% endif %}
+              </div>
+            {% endfor %}
+          </div>
         {% else %}
-          <p class="text-muted">No cafe memberships.</p>
+          <p class="text-muted mb-0">No cafe memberships.</p>
         {% endif %}
-
       </div>
     </div>
 
-    <!-- Add membership -->
-    <div class="card shadow-sm">
-      <div class="card-body">
-
-        <h2 class="h6">Add / Update Cafe Membership</h2>
-
-        <form method="post"
-              action="{{ url_for('admin_user_membership', user_id=target.id) }}">
+    <div class="card shadow-sm border-0">
+      <div class="card-body p-4">
+        <h2 class="h6 mb-3">Add or Update Cafe Membership</h2>
+        <form method="post" action="{{ url_for('admin_user_membership', user_id=target.id) }}">
           <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
           <input type="hidden" name="action" value="add_or_update">
 
-          <div class="row g-2">
-
-            <div class="col-md-6">
+          <div class="row g-3">
+            <div class="col-md-5">
               <label class="form-label">Cafe</label>
               <select name="cafe_id" class="form-select" required>
                 <option value="">-- Select cafe --</option>
@@ -169,39 +143,28 @@
               </select>
             </div>
 
-            <div class="col-md-3">
+            <div class="col-md-4">
               <label class="form-label">Role</label>
               <select name="role" class="form-select">
                 <option value="staff">Staff</option>
                 <option value="manager">Manager</option>
+                <option value="owner">Cafe Owner</option>
               </select>
             </div>
 
             <div class="col-md-3 d-flex align-items-end">
               <div class="form-check">
-                <input class="form-check-input"
-                       type="checkbox"
-                       name="is_active"
-                       checked>
-                <label class="form-check-label">
-                  Active
-                </label>
+                <input class="form-check-input" type="checkbox" name="is_active" checked>
+                <label class="form-check-label">Active</label>
               </div>
             </div>
-
           </div>
 
-          <button class="btn btn-primary btn-sm mt-3">
-            Save Membership
-          </button>
-
+          <button class="btn btn-primary btn-sm mt-3" type="submit">Save Membership</button>
         </form>
-
       </div>
     </div>
-
   </div>
-
 </div>
 
 {% endblock %}

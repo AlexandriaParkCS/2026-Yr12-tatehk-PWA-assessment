@@ -51,7 +51,12 @@ class CafeCustomerNote(db.Model):
     user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False, index=True)
 
     is_flagged = db.Column(db.Boolean, nullable=False, default=False)
+    is_suspended = db.Column(db.Boolean, nullable=False, default=False)
     note = db.Column(db.String(500), nullable=True)
+    suspension_reason = db.Column(db.String(120), nullable=True)
+    suspension_note = db.Column(db.String(255), nullable=True)
+    suspended_by_user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=True, index=True)
+    suspended_at = db.Column(db.DateTime, nullable=True)
     updated_by_user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=True, index=True)
     updated_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -70,6 +75,21 @@ class UserContact(db.Model):
     updated_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
+class BlockedContact(db.Model):
+    __tablename__ = "blocked_contacts"
+
+    id = db.Column(db.Integer, primary_key=True)
+    block_type = db.Column(db.String(10), nullable=False, index=True)  # email | phone
+    raw_value = db.Column(db.String(255), nullable=False)
+    normalized_value = db.Column(db.String(255), nullable=False, index=True)
+    note = db.Column(db.String(255), nullable=True)
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+
+    __table_args__ = (
+        db.UniqueConstraint("block_type", "normalized_value", name="uq_blocked_contact_type_value"),
+    )
+
+
 class Cafe(db.Model):
     __tablename__ = "cafes"
 
@@ -79,6 +99,7 @@ class Cafe(db.Model):
     slug = db.Column(db.String(80), unique=True, nullable=False, index=True)
 
     is_active = db.Column(db.Boolean, nullable=False, default=True)
+    is_archived = db.Column(db.Boolean, nullable=False, default=False)
     created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
 
     # Branding / theme
@@ -87,6 +108,9 @@ class Cafe(db.Model):
     secondary_color = db.Column(db.String(20), nullable=False, default="#f5ede3")
     theme_mode = db.Column(db.String(20), nullable=False, default="light")   # light | dark | coffee | modern
     card_style = db.Column(db.String(20), nullable=False, default="rounded") # rounded | minimal | bold
+    public_location = db.Column(db.String(255), nullable=True)
+    public_opening_hours = db.Column(db.String(255), nullable=True)
+    public_join_instructions = db.Column(db.String(500), nullable=True)
 
     settings = db.relationship(
         "CafeSettings",
@@ -135,6 +159,10 @@ class User(db.Model):
     username = db.Column(db.String(40), unique=True, nullable=False, index=True)
     email = db.Column(db.String(255), unique=True, nullable=False, index=True)
     password_hash = db.Column(db.String(255), nullable=False)
+    pending_email = db.Column(db.String(255), nullable=True)
+    email_verified_at = db.Column(db.DateTime, nullable=True)
+    requires_password_setup = db.Column(db.Boolean, nullable=False, default=False)
+    requires_email_verification = db.Column(db.Boolean, nullable=False, default=False)
 
     is_active = db.Column(db.Boolean, nullable=False, default=True)
     is_global_admin = db.Column(db.Boolean, nullable=False, default=False)
@@ -195,7 +223,7 @@ class CafeMember(db.Model):
     user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False, index=True)
     cafe_id = db.Column(db.Integer, db.ForeignKey("cafes.id"), nullable=False, index=True)
 
-    role = db.Column(db.String(20), nullable=False)  # manager | staff
+    role = db.Column(db.String(20), nullable=False)  # owner | manager | staff
     is_active = db.Column(db.Boolean, nullable=False, default=True)
 
     created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
@@ -388,6 +416,28 @@ class PasswordResetToken(db.Model):
     created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
 
     user = db.relationship("User", back_populates="password_reset_tokens")
+
+
+class EmailVerificationToken(db.Model):
+    __tablename__ = "email_verification_tokens"
+
+    id = db.Column(db.Integer, primary_key=True)
+
+    user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False, index=True)
+    email = db.Column(db.String(255), nullable=False, index=True)
+    token = db.Column(
+        db.String(64),
+        unique=True,
+        nullable=False,
+        default=lambda: secrets.token_urlsafe(32),
+    )
+    expires_at = db.Column(
+        db.DateTime,
+        nullable=False,
+        default=lambda: datetime.utcnow() + timedelta(hours=24),
+    )
+    used_at = db.Column(db.DateTime, nullable=True)
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
 
 
 class Notification(db.Model):

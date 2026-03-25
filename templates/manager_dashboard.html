@@ -15,10 +15,16 @@
   </div>
 </div>
 
+{% if total_customers == 0 and not recent_activity %}
+  <div class="alert alert-info">
+    This cafe is ready, but it has no customer activity yet. Invite your team, scan a customer QR code, or open the public cafe link to start onboarding people.
+  </div>
+{% endif %}
+
 <div class="d-flex flex-wrap gap-2 mb-4">
-  <a class="btn btn-outline-primary btn-sm" href="{{ url_for('manager_audit') }}">Audit Log</a>
-  <a class="btn btn-outline-primary btn-sm" href="{{ url_for('manager_customers') }}">Customer Search</a>
-  <a class="btn btn-outline-primary btn-sm" href="{{ url_for('manager_staff', invite_status='active') }}">Invite History</a>
+  <a class="btn btn-outline-primary btn-sm" href="{{ url_for('cafe_manager_audit', cafe_slug=active_cafe.slug) }}">Audit Log</a>
+  <a class="btn btn-outline-primary btn-sm" href="{{ url_for('cafe_manager_customers', cafe_slug=active_cafe.slug) }}">Customer Search</a>
+  <a class="btn btn-outline-primary btn-sm" href="{{ url_for('cafe_manager_staff', cafe_slug=active_cafe.slug, invite_status='active') }}">Invite History</a>
 </div>
 
 <!-- Stats -->
@@ -143,7 +149,7 @@
           </div>
         {% else %}
           <div class="alert alert-info mb-0">
-            No customer loyalty cards yet for this cafe.
+            No customer loyalty cards yet for this cafe. Your first steps are to add staff, invite managers, and scan a customer QR code to create their first card.
           </div>
         {% endif %}
       </div>
@@ -180,7 +186,7 @@
           </div>
         {% else %}
           <div class="text-muted">
-            No recent activity yet.
+            No recent activity yet. Once staff start scanning customers and redeeming rewards, the latest actions will show here.
           </div>
         {% endif %}
       </div>

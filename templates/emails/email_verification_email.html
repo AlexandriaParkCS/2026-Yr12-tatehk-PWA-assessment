@@ -8,30 +8,28 @@
           <img src="{{ email_logo_url }}" alt="{{ email_brand_name }} logo" style="width:52px; height:52px; object-fit:cover; border-radius:14px; background:#ffffff; display:block; margin-bottom:14px;">
         {% endif %}
         <div style="font-size:12px; letter-spacing:0.16em; text-transform:uppercase; opacity:0.9;">{{ email_brand_name }}</div>
-        <h1 style="margin:10px 0 0; font-size:30px; line-height:1.15;">You&apos;ve Been Added</h1>
+        <h1 style="margin:10px 0 0; font-size:30px; line-height:1.15;">Verify Your Email</h1>
       </div>
 
       <div style="padding:32px;">
         <p style="margin:0 0 16px; font-size:16px; line-height:1.7;">Hello {{ username }},</p>
-        <p style="margin:0 0 18px; font-size:16px; line-height:1.7;">
-          Your account has been added to <strong>{{ cafe_name }}</strong> as <strong>{{ role }}</strong>.
-        </p>
+        <p style="margin:0 0 18px; font-size:16px; line-height:1.7;">{{ purpose_label }}</p>
 
         <div style="margin:26px 0;">
-          <a href="{{ cafe_url }}" style="display:inline-block; background:{{ email_accent_color }}; color:#ffffff; text-decoration:none; padding:14px 22px; border-radius:999px; font-weight:700;">
-            View Cafe
+          <a href="{{ verify_url }}" style="display:inline-block; background:{{ email_accent_color }}; color:#ffffff; text-decoration:none; padding:14px 22px; border-radius:999px; font-weight:700;">
+            Verify Email
           </a>
         </div>
 
         <div style="background:{{ email_secondary_color }}; padding:16px 18px; border-radius:16px; margin:0 0 18px;">
-          <div style="font-size:13px; text-transform:uppercase; letter-spacing:0.08em; color:{{ email_muted_color }}; margin-bottom:6px;">What to expect</div>
-          <div style="font-size:15px; line-height:1.7;">The cafe will now appear in your account, and this same link will take you straight into it once you log in.</div>
+          <div style="font-size:13px; text-transform:uppercase; letter-spacing:0.08em; color:{{ email_muted_color }}; margin-bottom:6px;">Timing</div>
+          <div style="font-size:15px; line-height:1.7;">This link expires in <strong>{{ expiry_hours }} hours</strong>.</div>
         </div>
 
         <p style="margin:0 0 10px; font-size:14px; line-height:1.7; color:{{ email_muted_color }};">
           If the button does not work, copy and paste this link into your browser:
         </p>
-        <p style="margin:0; word-break:break-word; font-size:14px; line-height:1.7; color:{{ email_muted_color }};">{{ cafe_url }}</p>
+        <p style="margin:0; word-break:break-word; font-size:14px; line-height:1.7; color:{{ email_muted_color }};">{{ verify_url }}</p>
       </div>
     </div>
   </div>

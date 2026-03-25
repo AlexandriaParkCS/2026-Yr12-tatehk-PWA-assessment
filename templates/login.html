@@ -22,8 +22,15 @@
           <button class="btn btn-primary w-100" type="submit">Login</button>
         </form>
 
-        <div class="text-center mt-3">
+        <div class="alert alert-light border mt-3 mb-0 small">
+          New accounts must verify their email before first login.
+        </div>
+
+        <div class="text-center mt-3 d-flex justify-content-center flex-wrap gap-3">
           <a href="{{ url_for('forgot_password') }}">Forgot password?</a>
+          {% if global_settings.allow_public_registration %}
+            <a href="{{ url_for('register') }}">Create account</a>
+          {% endif %}
         </div>
       </div>
     </div>

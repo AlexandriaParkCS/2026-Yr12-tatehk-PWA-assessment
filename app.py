@@ -15,13 +15,14 @@ from flask import (
     send_file, jsonify, send_from_directory, Response
 )
 from werkzeug.security import generate_password_hash, check_password_hash
-from sqlalchemy import or_, and_, func
+from sqlalchemy import or_, and_, func, text
 
 from models import (
     db,
     User,
     GlobalSettings,
     EmailSettings,
+    BlockedContact,
     Cafe,
     CafeMember,
     CafeCustomerNote,
@@ -32,6 +33,7 @@ from models import (
     ActivityLog,
     StaffInvite,
     PasswordResetToken,
+    EmailVerificationToken,
     Notification,
 )
 
@@ -101,6 +103,104 @@ def build_default_cafe_settings(cafe_id: int, global_settings: GlobalSettings) -
     )
 
 
+def cafe_is_available(cafe: Cafe | None) -> bool:
+    return bool(cafe and cafe.is_active and not getattr(cafe, "is_archived", False))
+
+
+def is_manager_role(role: str | None) -> bool:
+    return role in ("owner", "manager")
+
+
+def get_cafe_owner_membership(cafe_id: int) -> CafeMember | None:
+    return CafeMember.query.filter_by(cafe_id=cafe_id, role="owner", is_active=True).first()
+
+
+def assign_membership_role(member: CafeMember, role: str) -> None:
+    role = (role or "staff").strip().lower()
+    if role not in ("staff", "manager", "owner"):
+        role = "staff"
+
+    if role == "owner":
+        current_owner = get_cafe_owner_membership(member.cafe_id)
+        if current_owner and current_owner.id != member.id:
+            current_owner.role = "manager"
+
+    member.role = role
+    member.is_active = True
+
+
+def get_email_branding(cafe: Cafe | None = None) -> dict:
+    global_settings = ensure_global_settings()
+    accent_color = getattr(cafe, "accent_color", None) or "#2f5d50"
+    secondary_color = getattr(cafe, "secondary_color", None) or "#f4efe7"
+    logo_url = getattr(cafe, "logo_url", None)
+    brand_name = cafe.name if cafe else global_settings.site_name
+    return {
+        "email_brand_name": brand_name,
+        "email_logo_url": logo_url,
+        "email_accent_color": accent_color,
+        "email_secondary_color": secondary_color,
+        "email_background_color": "#f7f3ee",
+        "email_card_color": "#fffdf9",
+        "email_text_color": "#2d2218",
+        "email_muted_color": "#6b5a4c",
+    }
+
+
+def create_email_verification_token(user: User, email: str) -> EmailVerificationToken:
+    active_tokens = EmailVerificationToken.query.filter_by(user_id=user.id, used_at=None).all()
+    now = datetime.utcnow()
+    for token_row in active_tokens:
+        token_row.used_at = now
+
+    token = EmailVerificationToken(
+        user_id=user.id,
+        email=email,
+        expires_at=now + timedelta(hours=24),
+    )
+    db.session.add(token)
+    db.session.commit()
+    return token
+
+
+def get_valid_email_verification(token: str) -> EmailVerificationToken | None:
+    row = EmailVerificationToken.query.filter_by(token=token).first()
+    if not row:
+        return None
+    if row.used_at is not None:
+        return None
+    if row.expires_at < datetime.utcnow():
+        return None
+    return row
+
+
+def send_email_verification_email(*, user: User, email: str, purpose_label: str, cafe: Cafe | None = None) -> tuple[bool, str, str]:
+    global_settings = ensure_global_settings()
+    token = create_email_verification_token(user, email)
+    verify_url = url_for("verify_email", token=token.token, _external=True)
+    branding = get_email_branding(cafe)
+    email_sent, email_message = send_app_email(
+        to_email=email,
+        subject=f"Verify your email for {branding['email_brand_name']}",
+        text_body=(
+            f"Hello {user.username},\n\n"
+            f"{purpose_label}\n\n"
+            f"Verify your email here:\n{verify_url}\n\n"
+            "This link expires in 24 hours.\n"
+        ),
+        html_body=render_template(
+            "emails/email_verification_email.html",
+            site_name=global_settings.site_name,
+            username=user.username,
+            purpose_label=purpose_label,
+            verify_url=verify_url,
+            expiry_hours=24,
+            **branding,
+        ),
+    )
+    return email_sent, email_message, verify_url
+
+
 def get_customer_meta(cafe_id: int, user_id: int) -> CafeCustomerNote | None:
     return CafeCustomerNote.query.filter_by(cafe_id=cafe_id, user_id=user_id).first()
 
@@ -113,6 +213,34 @@ def upsert_customer_meta(cafe_id: int, user_id: int, *, note: str | None, is_fla
     meta.note = (note or "").strip() or None
     meta.is_flagged = bool(is_flagged)
     meta.updated_by_user_id = updated_by_user_id
+    meta.updated_at = datetime.utcnow()
+    return meta
+
+
+def customer_is_suspended(cafe_id: int, user_id: int) -> bool:
+    meta = get_customer_meta(cafe_id, user_id)
+    return bool(meta and getattr(meta, "is_suspended", False))
+
+
+def update_customer_suspension(
+    cafe_id: int,
+    user_id: int,
+    *,
+    actor_user_id: int,
+    is_suspended: bool,
+    reason: str | None,
+    note: str | None,
+) -> CafeCustomerNote:
+    meta = get_customer_meta(cafe_id, user_id)
+    if not meta:
+        meta = CafeCustomerNote(cafe_id=cafe_id, user_id=user_id)
+        db.session.add(meta)
+    meta.is_suspended = is_suspended
+    meta.suspension_reason = (reason or "").strip() or None
+    meta.suspension_note = (note or "").strip() or None
+    meta.suspended_by_user_id = actor_user_id if is_suspended else None
+    meta.suspended_at = datetime.utcnow() if is_suspended else None
+    meta.updated_by_user_id = actor_user_id
     meta.updated_at = datetime.utcnow()
     return meta
 
@@ -136,6 +264,10 @@ def normalize_phone(phone_number: str) -> str:
     return re.sub(r"\D+", "", phone_number or "")
 
 
+def normalize_email(email: str) -> str:
+    return (email or "").strip().lower()
+
+
 def get_user_contact(user_id: int) -> UserContact | None:
     return UserContact.query.filter_by(user_id=user_id).first()
 
@@ -149,6 +281,38 @@ def upsert_user_contact(user_id: int, phone_number: str | None) -> UserContact:
     contact.phone_number = (phone_number or "").strip() or None
     contact.phone_search = normalized or None
     return contact
+
+
+def get_blocked_contact(*, email: str | None = None, phone_number: str | None = None) -> BlockedContact | None:
+    normalized_email = normalize_email(email or "")
+    if normalized_email:
+        blocked_email = BlockedContact.query.filter_by(block_type="email", normalized_value=normalized_email).first()
+        if blocked_email:
+            return blocked_email
+
+    normalized_phone = normalize_phone(phone_number or "")
+    if normalized_phone:
+        blocked_phone = BlockedContact.query.filter_by(block_type="phone", normalized_value=normalized_phone).first()
+        if blocked_phone:
+            return blocked_phone
+
+    return None
+
+
+def get_user_block(user: User | None) -> BlockedContact | None:
+    if not user:
+        return None
+    contact = get_user_contact(user.id)
+    return get_blocked_contact(email=user.email, phone_number=contact.phone_number if contact else None)
+
+
+def blocked_contact_message(blocked: BlockedContact | None) -> str:
+    if not blocked:
+        return "This contact has been blocked."
+    contact_label = "email" if blocked.block_type == "email" else "phone number"
+    if blocked.note:
+        return f"This {contact_label} has been blocked. {blocked.note}"
+    return f"This {contact_label} has been blocked."
 
 
 def send_app_email(*, to_email: str, subject: str, text_body: str, html_body: str | None = None) -> tuple[bool, str]:
@@ -176,6 +340,79 @@ def send_app_email(*, to_email: str, subject: str, text_body: str, html_body: st
         return (True, "Email sent.")
     except Exception as exc:
         return (False, str(exc))
+
+
+def create_password_setup_token(user: User) -> PasswordResetToken:
+    active_tokens = PasswordResetToken.query.filter_by(user_id=user.id, used_at=None).all()
+    now = datetime.utcnow()
+    for token_row in active_tokens:
+        token_row.used_at = now
+
+    global_settings = ensure_global_settings()
+    token = PasswordResetToken(
+        user_id=user.id,
+        expires_at=now + timedelta(hours=max(global_settings.password_reset_expiry_hours, 1)),
+    )
+    db.session.add(token)
+    db.session.commit()
+    return token
+
+
+def send_new_user_setup_email(*, user: User, created_by_label: str, cafe: Cafe | None = None) -> tuple[bool, str, str]:
+    global_settings = ensure_global_settings()
+    token = create_password_setup_token(user)
+    setup_url = url_for("reset_password", token=token.token, _external=True)
+    expiry_hours = max(global_settings.password_reset_expiry_hours, 1)
+    cafe_name = cafe.name if cafe else None
+    branding = get_email_branding(cafe)
+
+    email_sent, email_message = send_app_email(
+        to_email=user.email,
+        subject=f"Welcome to {branding['email_brand_name']}",
+        text_body=(
+            f"Hello {user.username},\n\n"
+            f"{created_by_label} created an account for you"
+            f"{f' for {cafe_name}' if cafe_name else ''}.\n\n"
+            f"Set your password here:\n{setup_url}\n\n"
+            f"This link expires in {expiry_hours} hour(s).\n"
+        ),
+        html_body=render_template(
+            "emails/new_user_welcome_email.html",
+            site_name=global_settings.site_name,
+            username=user.username,
+            created_by_label=created_by_label,
+            cafe_name=cafe_name,
+            setup_url=setup_url,
+            expiry_hours=expiry_hours,
+            **branding,
+        ),
+    )
+    return email_sent, email_message, setup_url
+
+
+def send_staff_invite_email(*, invite: StaffInvite, cafe: Cafe, site_name: str) -> tuple[bool, str, str]:
+    invite_url = url_for("invite_accept", token=invite.token, _external=True)
+    branding = get_email_branding(cafe)
+    email_sent, email_message = send_app_email(
+        to_email=invite.email,
+        subject=f"Invitation to join {branding['email_brand_name']}",
+        text_body=(
+            f"You have been invited to join {cafe.name} as {invite.role}.\n\n"
+            f"Accept your invite here:\n{invite_url}\n\n"
+            f"This invite expires on {invite.expires_at} UTC.\n"
+        ),
+        html_body=render_template(
+            "emails/invite_email.html",
+            site_name=site_name,
+            cafe_name=cafe.name,
+            role=invite.role,
+            invite_email=invite.email,
+            invite_url=invite_url,
+            expires_at=invite.expires_at,
+            **branding,
+        ),
+    )
+    return email_sent, email_message, invite_url
 
 
 def ensure_loyalty_card(user: User, cafe: Cafe) -> LoyaltyCard:
@@ -375,6 +612,98 @@ def get_valid_password_reset(token: str) -> PasswordResetToken | None:
     return reset
 
 
+def ensure_sqlite_schema_updates() -> None:
+    if db.engine.dialect.name != "sqlite":
+        return
+
+    db.session.execute(text("""
+        CREATE TABLE IF NOT EXISTS schema_migrations (
+            name TEXT PRIMARY KEY,
+            applied_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )
+    """))
+
+    def column_names(table_name: str) -> set[str]:
+        return {
+            row[1]
+            for row in db.session.execute(text(f"PRAGMA table_info({table_name})")).fetchall()
+        }
+
+    migrations = [
+        (
+            "001_user_verification_columns",
+            lambda: [
+                db.session.execute(text("ALTER TABLE users ADD COLUMN pending_email VARCHAR(255)"))
+                for _ in [0] if "pending_email" not in column_names("users")
+            ] + [
+                db.session.execute(text("ALTER TABLE users ADD COLUMN email_verified_at DATETIME"))
+                for _ in [0] if "email_verified_at" not in column_names("users")
+            ] + [
+                db.session.execute(text("ALTER TABLE users ADD COLUMN requires_password_setup BOOLEAN NOT NULL DEFAULT 0"))
+                for _ in [0] if "requires_password_setup" not in column_names("users")
+            ] + [
+                db.session.execute(text("ALTER TABLE users ADD COLUMN requires_email_verification BOOLEAN NOT NULL DEFAULT 0"))
+                for _ in [0] if "requires_email_verification" not in column_names("users")
+            ],
+        ),
+        (
+            "002_cafe_archive_column",
+            lambda: [
+                db.session.execute(text("ALTER TABLE cafes ADD COLUMN is_archived BOOLEAN NOT NULL DEFAULT 0"))
+                for _ in [0] if "is_archived" not in column_names("cafes")
+            ],
+        ),
+        (
+            "003_cafe_public_fields",
+            lambda: [
+                db.session.execute(text("ALTER TABLE cafes ADD COLUMN public_location VARCHAR(255)"))
+                for _ in [0] if "public_location" not in column_names("cafes")
+            ] + [
+                db.session.execute(text("ALTER TABLE cafes ADD COLUMN public_opening_hours VARCHAR(255)"))
+                for _ in [0] if "public_opening_hours" not in column_names("cafes")
+            ] + [
+                db.session.execute(text("ALTER TABLE cafes ADD COLUMN public_join_instructions VARCHAR(500)"))
+                for _ in [0] if "public_join_instructions" not in column_names("cafes")
+            ],
+        ),
+        (
+            "004_customer_moderation_fields",
+            lambda: [
+                db.session.execute(text("ALTER TABLE cafe_customer_notes ADD COLUMN is_suspended BOOLEAN NOT NULL DEFAULT 0"))
+                for _ in [0] if "is_suspended" not in column_names("cafe_customer_notes")
+            ] + [
+                db.session.execute(text("ALTER TABLE cafe_customer_notes ADD COLUMN suspension_reason VARCHAR(120)"))
+                for _ in [0] if "suspension_reason" not in column_names("cafe_customer_notes")
+            ] + [
+                db.session.execute(text("ALTER TABLE cafe_customer_notes ADD COLUMN suspension_note VARCHAR(255)"))
+                for _ in [0] if "suspension_note" not in column_names("cafe_customer_notes")
+            ] + [
+                db.session.execute(text("ALTER TABLE cafe_customer_notes ADD COLUMN suspended_by_user_id INTEGER"))
+                for _ in [0] if "suspended_by_user_id" not in column_names("cafe_customer_notes")
+            ] + [
+                db.session.execute(text("ALTER TABLE cafe_customer_notes ADD COLUMN suspended_at DATETIME"))
+                for _ in [0] if "suspended_at" not in column_names("cafe_customer_notes")
+            ],
+        ),
+    ]
+
+    applied = {
+        row[0]
+        for row in db.session.execute(text("SELECT name FROM schema_migrations")).fetchall()
+    }
+
+    for migration_name, migration_fn in migrations:
+        if migration_name in applied:
+            continue
+        migration_fn()
+        db.session.execute(
+            text("INSERT INTO schema_migrations (name) VALUES (:name)"),
+            {"name": migration_name},
+        )
+
+    db.session.commit()
+
+
 # ---------------------------
 # App factory
 # ---------------------------
@@ -394,6 +723,7 @@ def create_app():
 
     with app.app_context():
         db.create_all()
+        ensure_sqlite_schema_updates()
         ensure_global_settings()
         ensure_email_settings()
         seed_global_admin()
@@ -410,7 +740,7 @@ def create_app():
         if not cid:
             return None
         cafe = db.session.get(Cafe, cid)
-        if cafe and cafe.is_active:
+        if cafe_is_available(cafe):
             return cafe
         return None
 
@@ -431,7 +761,12 @@ def create_app():
             return []
 
         if is_global_admin(u):
-            return Cafe.query.filter_by(is_active=True).order_by(Cafe.name.asc()).all()
+            return (
+                Cafe.query
+                .filter(Cafe.is_active == True, Cafe.is_archived == False)  # noqa: E712
+                .order_by(Cafe.name.asc())
+                .all()
+            )
 
         cm_join = and_(
             CafeMember.cafe_id == Cafe.id,
@@ -445,7 +780,7 @@ def create_app():
 
         cafes = (
             Cafe.query
-            .filter(Cafe.is_active == True)  # noqa: E712
+            .filter(Cafe.is_active == True, Cafe.is_archived == False)  # noqa: E712
             .outerjoin(CafeMember, cm_join)
             .outerjoin(LoyaltyCard, lc_join)
             .filter(or_(CafeMember.id.isnot(None), LoyaltyCard.id.isnot(None)))
@@ -454,6 +789,311 @@ def create_app():
         )
         return cafes
 
+    def user_can_access_cafe(u: User | None, cafe: Cafe | None) -> bool:
+        if not u or not cafe or not cafe_is_available(cafe):
+            return False
+        if is_global_admin(u):
+            return True
+        member = CafeMember.query.filter_by(user_id=u.id, cafe_id=cafe.id, is_active=True).first()
+        has_card = LoyaltyCard.query.filter_by(user_id=u.id, cafe_id=cafe.id).first()
+        return bool(member or has_card)
+
+    def render_card_page_for_user(u: User, cafe: Cafe):
+        settings = ensure_cafe_settings(cafe)
+        card = ensure_loyalty_card(u, cafe)
+        progress = get_loyalty_progress(card, settings, cafe.id)
+        tiers = get_active_reward_tiers(cafe.id) if settings.loyalty_type == "tiered_points" else []
+        return render_template("card.html", card=card, settings=settings, progress=progress, tiers=tiers)
+
+    def render_card_history_page_for_user(u: User, cafe: Cafe):
+        history = (
+            ActivityLog.query
+            .filter_by(cafe_id=cafe.id, target_user_id=u.id)
+            .order_by(ActivityLog.created_at.desc())
+            .limit(100)
+            .all()
+        )
+        return render_template("card_history.html", history=history)
+
+    def render_staff_home_page(cafe: Cafe):
+        settings = ensure_cafe_settings(cafe)
+        tiers = get_active_reward_tiers(cafe.id) if settings.loyalty_type == "tiered_points" else []
+        recent_activity = (
+            ActivityLog.query
+            .filter(ActivityLog.cafe_id == cafe.id)
+            .filter(ActivityLog.action.in_(["stamp_added", "points_added", "reward_redeemed"]))
+            .order_by(ActivityLog.created_at.desc())
+            .limit(20)
+            .all()
+        )
+        recent_customers = []
+        seen_user_ids = set()
+        for item in recent_activity:
+            if item.target_user_id in seen_user_ids:
+                continue
+            u = db.session.get(User, item.target_user_id)
+            if not u or u.is_global_admin:
+                continue
+            card = LoyaltyCard.query.filter_by(user_id=u.id, cafe_id=cafe.id).first()
+            if not card:
+                continue
+            progress = get_loyalty_progress(card, settings, cafe.id)
+            meta = get_customer_meta(cafe.id, u.id)
+            recent_customers.append((u, card, progress, meta, item))
+            seen_user_ids.add(u.id)
+            if len(recent_customers) >= 6:
+                break
+        return render_template("staff.html", settings=settings, tiers=tiers, recent_customers=recent_customers)
+
+    def render_manager_dashboard_page(cafe: Cafe):
+        settings = ensure_cafe_settings(cafe)
+
+        cards = (
+            LoyaltyCard.query.filter_by(cafe_id=cafe.id)
+            .order_by(LoyaltyCard.updated_at.desc())
+            .limit(300)
+            .all()
+        )
+
+        rows = []
+        for c in cards:
+            u = db.session.get(User, c.user_id)
+            if not u or u.is_global_admin:
+                continue
+            progress = get_loyalty_progress(c, settings, cafe.id)
+            meta = get_customer_meta(cafe.id, u.id)
+            rows.append((u, c, progress, meta))
+
+        total_customers = LoyaltyCard.query.filter_by(cafe_id=cafe.id).count()
+        rewards_ready = LoyaltyCard.query.filter_by(cafe_id=cafe.id, reward_available=True).count()
+
+        today = datetime.utcnow().date()
+        if settings.loyalty_type in ("points", "tiered_points"):
+            activity_today = (
+                db.session.query(func.coalesce(func.sum(ActivityLog.points_delta), 0))
+                .filter(ActivityLog.cafe_id == cafe.id)
+                .filter(ActivityLog.action == "points_added")
+                .filter(func.date(ActivityLog.created_at) == today)
+                .scalar()
+            ) or 0
+        else:
+            activity_today = (
+                db.session.query(func.count(ActivityLog.id))
+                .filter(ActivityLog.cafe_id == cafe.id)
+                .filter(ActivityLog.action == "stamp_added")
+                .filter(func.date(ActivityLog.created_at) == today)
+                .scalar()
+            ) or 0
+
+        recent_activity = (
+            ActivityLog.query.filter_by(cafe_id=cafe.id)
+            .order_by(ActivityLog.created_at.desc())
+            .limit(10)
+            .all()
+        )
+
+        tiers = get_active_reward_tiers(cafe.id) if settings.loyalty_type == "tiered_points" else []
+
+        return render_template(
+            "manager_dashboard.html",
+            rows=rows,
+            settings=settings,
+            total_customers=total_customers,
+            rewards_ready=rewards_ready,
+            activity_today=activity_today,
+            stamps_today=activity_today,
+            recent_activity=recent_activity,
+            tiers=tiers,
+        )
+
+    def render_manager_audit_page(cafe: Cafe, action_filter: str, q: str):
+        query = ActivityLog.query.filter_by(cafe_id=cafe.id)
+        if action_filter:
+            grouped_actions = {
+                "invites": ["invite_created", "invite_revoked", "invite_accepted", "existing_user_added_to_cafe"],
+                "scans": ["stamp_added", "points_added"],
+                "redemptions": ["reward_redeemed", "loyalty_reset"],
+                "passwords": ["password_changed"],
+                "settings": ["settings_updated"],
+                "staff": ["membership_added", "membership_removed", "membership_role_changed", "customer_note_updated", "customer_suspended", "customer_reactivated"],
+            }
+            if action_filter in grouped_actions:
+                query = query.filter(ActivityLog.action.in_(grouped_actions[action_filter]))
+            else:
+                query = query.filter(ActivityLog.action == action_filter)
+
+        items = query.order_by(ActivityLog.created_at.desc()).limit(200).all()
+        rows = []
+        for item in items:
+            actor = db.session.get(User, item.actor_user_id) if item.actor_user_id else None
+            target = db.session.get(User, item.target_user_id) if item.target_user_id else None
+            haystack = " ".join(filter(None, [
+                actor.username if actor else "",
+                target.username if target else "",
+                target.email if target else "",
+                item.action,
+                item.note or "",
+            ])).lower()
+            if q and q not in haystack:
+                continue
+            rows.append((item, actor, target))
+
+        return render_template("manager_audit.html", rows=rows, action_filter=action_filter, q=q)
+
+    def render_manager_staff_page(cafe: Cafe, invite_status: str):
+        members = (
+            CafeMember.query.filter_by(cafe_id=cafe.id)
+            .order_by(CafeMember.role.asc(), CafeMember.created_at.desc())
+            .all()
+        )
+
+        rows = []
+        for m in members:
+            u = db.session.get(User, m.user_id)
+            if not u or u.is_global_admin:
+                continue
+            rows.append((u, m))
+        owner_membership = next((m for _, m in rows if m.role == "owner"), None)
+
+        active_invites = (
+            StaffInvite.query.filter_by(cafe_id=cafe.id, is_active=True)
+            .filter(StaffInvite.accepted_at.is_(None))
+            .filter(StaffInvite.expires_at >= datetime.utcnow())
+            .order_by(StaffInvite.created_at.desc())
+            .all()
+        )
+
+        invite_query = StaffInvite.query.filter_by(cafe_id=cafe.id)
+        if invite_status == "accepted":
+            invite_query = invite_query.filter(StaffInvite.accepted_at.isnot(None))
+        elif invite_status == "revoked":
+            invite_query = invite_query.filter(StaffInvite.is_active == False).filter(StaffInvite.accepted_at.is_(None))
+        elif invite_status == "expired":
+            invite_query = invite_query.filter(StaffInvite.expires_at < datetime.utcnow()).filter(StaffInvite.accepted_at.is_(None))
+        else:
+            invite_query = invite_query.filter(StaffInvite.is_active == True).filter(StaffInvite.accepted_at.is_(None)).filter(StaffInvite.expires_at >= datetime.utcnow())
+
+        invite_history = invite_query.order_by(StaffInvite.created_at.desc()).limit(100).all()
+        return render_template(
+            "manager_staff.html",
+            rows=rows,
+            invites=active_invites,
+            invite_history=invite_history,
+            invite_status=invite_status,
+            current_time=datetime.utcnow(),
+            owner_membership=owner_membership,
+        )
+
+    def render_manager_customers_page(cafe: Cafe, q: str):
+        settings = ensure_cafe_settings(cafe)
+        cards = LoyaltyCard.query.filter_by(cafe_id=cafe.id).order_by(LoyaltyCard.updated_at.desc()).all()
+        rows = []
+        for card in cards:
+            u = db.session.get(User, card.user_id)
+            if not u or u.is_global_admin:
+                continue
+            progress = get_loyalty_progress(card, settings, cafe.id)
+            meta = get_customer_meta(cafe.id, u.id)
+            contact = get_user_contact(u.id)
+            haystack = " ".join(filter(None, [
+                u.username,
+                u.email,
+                contact.phone_number if contact and contact.phone_number else "",
+                meta.note if meta and meta.note else "",
+                meta.suspension_reason if meta and meta.suspension_reason else "",
+            ])).lower()
+            if q and q not in haystack:
+                continue
+            rows.append((u, card, progress, meta, contact))
+
+        if request.args.get("format") == "csv":
+            output = io.StringIO()
+            writer = csv.writer(output)
+            writer.writerow(["Username", "Email", "Phone", "Current", "Required", "Unit", "Reward Ready", "Flagged", "Suspended", "Note", "Last Activity"])
+            for u, card, progress, meta, contact in rows:
+                writer.writerow([
+                    u.username,
+                    u.email,
+                    contact.phone_number if contact and contact.phone_number else "",
+                    progress["current"],
+                    progress["required"],
+                    progress["unit_label"],
+                    "Yes" if card.reward_available else "No",
+                    "Yes" if meta and meta.is_flagged else "No",
+                    "Yes" if meta and meta.is_suspended else "No",
+                    meta.note if meta and meta.note else "",
+                    card.last_activity_at.isoformat() if card.last_activity_at else "",
+                ])
+            return Response(
+                output.getvalue(),
+                mimetype="text/csv",
+                headers={"Content-Disposition": f"attachment; filename={cafe.slug}-customers.csv"}
+            )
+
+        return render_template("manager_customers.html", rows=rows, q=q)
+
+    def render_manager_customer_profile_page(cafe: Cafe, customer: User):
+        settings = ensure_cafe_settings(cafe)
+        card = LoyaltyCard.query.filter_by(user_id=customer.id, cafe_id=cafe.id).first()
+        progress = get_loyalty_progress(card, settings, cafe.id) if card else None
+        meta = get_customer_meta(cafe.id, customer.id)
+        contact = get_user_contact(customer.id)
+        history = (
+            ActivityLog.query
+            .filter_by(cafe_id=cafe.id, target_user_id=customer.id)
+            .order_by(ActivityLog.created_at.desc())
+            .limit(50)
+            .all()
+        )
+        actor_ids = {item.actor_user_id for item in history if item.actor_user_id}
+        actor_ids.update(
+            {
+                meta.updated_by_user_id if meta and meta.updated_by_user_id else None,
+                meta.suspended_by_user_id if meta and meta.suspended_by_user_id else None,
+            }
+        )
+        actor_ids.discard(None)
+        actor_map = {actor_id: db.session.get(User, actor_id) for actor_id in actor_ids}
+        return render_template(
+            "manager_customer_profile.html",
+            customer=customer,
+            card=card,
+            progress=progress,
+            meta=meta,
+            contact=contact,
+            history=history,
+            actor_map=actor_map,
+            settings=settings,
+        )
+
+    def render_cafe_settings_page(u: User, cafe: Cafe):
+        if not is_global_admin(u):
+            m = get_membership(u, cafe)
+            if not m or not is_manager_role(m.role):
+                abort(403)
+
+        settings = ensure_cafe_settings(cafe)
+        tiers = get_active_reward_tiers(cafe.id)
+        return render_template("cafe_settings.html", settings=settings, tiers=tiers)
+
+    def redirect_cafe_staff(cafe: Cafe):
+        return redirect(url_for("cafe_staff", cafe_slug=cafe.slug))
+
+    def redirect_cafe_manager_dashboard(cafe: Cafe):
+        return redirect(url_for("cafe_manager_dashboard", cafe_slug=cafe.slug))
+
+    def redirect_cafe_manager_staff(cafe: Cafe, *, invite_status: str | None = None):
+        kwargs = {"cafe_slug": cafe.slug}
+        if invite_status:
+            kwargs["invite_status"] = invite_status
+        return redirect(url_for("cafe_manager_staff", **kwargs))
+
+    def redirect_cafe_settings_page(cafe: Cafe):
+        return redirect(url_for("cafe_slug_settings", cafe_slug=cafe.slug))
+
+    def redirect_cafe_manager_customers(cafe: Cafe):
+        return redirect(url_for("cafe_manager_customers", cafe_slug=cafe.slug))
+
     def require_login(fn):
         @wraps(fn)
         def wrapper(*args, **kwargs):
@@ -461,6 +1101,11 @@ def create_app():
             if not u or not u.is_active:
                 session.clear()
                 flash("Please log in.", "warning")
+                return redirect(url_for("login"))
+            blocked = get_user_block(u)
+            if blocked:
+                session.clear()
+                flash(blocked_contact_message(blocked), "danger")
                 return redirect(url_for("login"))
             return fn(*args, **kwargs)
         return wrapper
@@ -497,7 +1142,9 @@ def create_app():
                     return fn(*args, **kwargs)
 
                 m = get_membership(u, cafe)
-                if not m or m.role not in roles:
+                if not m:
+                    abort(403)
+                if m.role not in roles and not (m.role == "owner" and "manager" in roles):
                     abort(403)
                 return fn(*args, **kwargs)
             return wrapper
@@ -545,6 +1192,8 @@ def create_app():
             "email_settings": email_settings,
             "me_membership": membership,
             "me_is_admin": is_global_admin(u),
+            "me_pending_setup": bool(u and getattr(u, "requires_password_setup", False)),
+            "me_email_verified": bool(u and (u.is_global_admin or not getattr(u, "requires_email_verification", False))),
             "unread_notifications": unread_notifications,
         }
 
@@ -596,6 +1245,10 @@ def create_app():
             if not username or not email or not password:
                 flash("Please fill in all fields.", "danger")
                 return redirect(url_for("register"))
+            blocked = get_blocked_contact(email=email, phone_number=phone_number)
+            if blocked:
+                flash(blocked_contact_message(blocked), "danger")
+                return redirect(url_for("register"))
             if len(password) < 8:
                 flash("Password must be at least 8 characters.", "danger")
                 return redirect(url_for("register"))
@@ -614,6 +1267,10 @@ def create_app():
                 username=username,
                 email=email,
                 password_hash=generate_password_hash(password),
+                pending_email=None,
+                email_verified_at=None,
+                requires_password_setup=False,
+                requires_email_verification=True,
                 is_active=True,
                 is_global_admin=False,
             )
@@ -621,20 +1278,16 @@ def create_app():
             db.session.flush()
             upsert_user_contact(user.id, phone_number)
             db.session.commit()
-
-            session.clear()
-            session["user_id"] = user.id
-            session["csrf_token"] = secrets.token_urlsafe(32)
-
-            create_notification(
-                user.id,
-                None,
-                "Welcome",
-                "Your account is ready. Show your QR code at a cafe to start earning loyalty rewards."
+            email_sent, email_message, verify_url = send_email_verification_email(
+                user=user,
+                email=user.email,
+                purpose_label=f"Welcome to {global_settings.site_name}. Confirm your email to activate your first login.",
             )
-
-            flash("Account created.", "success")
-            return redirect(url_for("my_qr"))
+            if email_sent:
+                flash("Account created. Check your email to verify your account before logging in.", "success")
+            else:
+                flash(f"Account created, but verification email could not be sent. Verify here: {verify_url} ({email_message})", "warning")
+            return redirect(url_for("login"))
 
         return render_template("register.html")
 
@@ -650,7 +1303,17 @@ def create_app():
                 (User.username == identifier) | (User.email == identifier.lower())
             ).first()
 
-            if not user or not user.is_active or not check_password_hash(user.password_hash, password):
+            if not user or not user.is_active:
+                flash("Invalid login.", "danger")
+                return redirect(url_for("login"))
+            blocked = get_user_block(user)
+            if blocked:
+                flash(blocked_contact_message(blocked), "danger")
+                return redirect(url_for("login"))
+            if not user.is_global_admin and user.requires_email_verification:
+                flash("Verify your email before logging in.", "warning")
+                return redirect(url_for("login"))
+            if not check_password_hash(user.password_hash, password):
                 flash("Invalid login.", "danger")
                 return redirect(url_for("login"))
 
@@ -678,6 +1341,10 @@ def create_app():
             if not email:
                 flash("Email is required.", "danger")
                 return redirect(url_for("forgot_password"))
+            blocked = get_blocked_contact(email=email)
+            if blocked:
+                flash(blocked_contact_message(blocked), "danger")
+                return redirect(url_for("forgot_password"))
 
             user = User.query.filter_by(email=email).first()
             if not user or not user.is_active:
@@ -702,6 +1369,7 @@ def create_app():
 
             reset_url = url_for("reset_password", token=reset.token, _external=True)
             expiry_hours = max(global_settings.password_reset_expiry_hours, 1)
+            branding = get_email_branding()
             email_sent, email_message = send_app_email(
                 to_email=user.email,
                 subject=f"{global_settings.site_name} password reset",
@@ -716,6 +1384,7 @@ def create_app():
                     username=user.username,
                     reset_url=reset_url,
                     expiry_hours=expiry_hours,
+                    **branding,
                 ),
             )
             if email_sent:
@@ -756,6 +1425,10 @@ def create_app():
                 return redirect(url_for("forgot_password"))
 
             user.password_hash = generate_password_hash(password)
+            user.requires_password_setup = False
+            if not user.email_verified_at:
+                user.email_verified_at = datetime.utcnow()
+            user.requires_email_verification = False
 
             now = datetime.utcnow()
             open_tokens = PasswordResetToken.query.filter_by(user_id=user.id, used_at=None).all()
@@ -768,6 +1441,51 @@ def create_app():
             return redirect(url_for("login"))
 
         return render_template("reset_password.html", token=token)
+
+    @app.get("/verify-email/<token>")
+    def verify_email(token: str):
+        verification = get_valid_email_verification(token)
+        if not verification:
+            flash("That email verification link is invalid or expired.", "danger")
+            return redirect(url_for("login"))
+
+        user = db.session.get(User, verification.user_id)
+        if not user or not user.is_active:
+            flash("Account not available for verification.", "danger")
+            return redirect(url_for("login"))
+
+        if verification.email != user.email:
+            existing = User.query.filter(User.email == verification.email, User.id != user.id).first()
+            if existing:
+                flash("That email is already in use.", "danger")
+                return redirect(url_for("account"))
+            user.email = verification.email
+            user.pending_email = None
+            create_notification(
+                user.id,
+                None,
+                "Email Updated",
+                f"Your email address is now {verification.email}."
+            )
+            success_redirect = url_for("account")
+            success_message = "Your new email address has been verified."
+        else:
+            create_notification(
+                user.id,
+                None,
+                "Email Verified",
+                "Your email address is verified and ready to use."
+            )
+            success_redirect = url_for("login")
+            success_message = "Email verified. You can log in now."
+
+        verification.used_at = datetime.utcnow()
+        user.email_verified_at = datetime.utcnow()
+        user.requires_email_verification = False
+        db.session.commit()
+
+        flash(success_message, "success")
+        return redirect(success_redirect)
 
     @app.post("/logout")
     def logout():
@@ -793,7 +1511,7 @@ def create_app():
             return redirect(url_for("login"))
 
         cafe = db.session.get(Cafe, invite.cafe_id)
-        if not cafe or not cafe.is_active:
+        if not cafe or not cafe_is_available(cafe):
             flash("This cafe is not available.", "danger")
             return redirect(url_for("login"))
 
@@ -806,6 +1524,10 @@ def create_app():
 
             if email != invite.email:
                 flash("Email must match the invite email.", "danger")
+                return redirect(url_for("invite_accept", token=token))
+            blocked = get_blocked_contact(email=email)
+            if blocked:
+                flash(blocked_contact_message(blocked), "danger")
                 return redirect(url_for("invite_accept", token=token))
 
             user = User.query.filter_by(email=email).first()
@@ -822,6 +1544,10 @@ def create_app():
                     username=username,
                     email=email,
                     password_hash=generate_password_hash(password),
+                    pending_email=None,
+                    email_verified_at=datetime.utcnow(),
+                    requires_password_setup=False,
+                    requires_email_verification=False,
                     is_active=True,
                     is_global_admin=False,
                 )
@@ -898,7 +1624,7 @@ def create_app():
         rows = []
         for card in cards:
             cafe = db.session.get(Cafe, card.cafe_id)
-            if not cafe or not cafe.is_active:
+            if not cafe or not cafe_is_available(cafe):
                 continue
             settings = ensure_cafe_settings(cafe)
             progress = get_loyalty_progress(card, settings, cafe.id)
@@ -921,10 +1647,12 @@ def create_app():
         u = current_user()
 
         username = (request.form.get("username") or "").strip()
-        email = (request.form.get("email") or "").strip().lower()
+        submitted_email = (request.form.get("email") or "").strip().lower()
         phone_number = (request.form.get("phone_number") or "").strip()
 
-        if not username or not email:
+        current_email = u.email
+
+        if not username or not submitted_email:
             flash("Username and email are required.", "danger")
             return redirect(url_for("account"))
 
@@ -933,7 +1661,7 @@ def create_app():
             flash("Username already taken.", "danger")
             return redirect(url_for("account"))
 
-        existing_email = User.query.filter(User.email == email, User.id != u.id).first()
+        existing_email = User.query.filter(User.email == submitted_email, User.id != u.id).first()
         if existing_email:
             flash("Email already in use.", "danger")
             return redirect(url_for("account"))
@@ -942,13 +1670,36 @@ def create_app():
         if existing_phone:
             flash("Phone number already in use.", "danger")
             return redirect(url_for("account"))
+        blocked = get_blocked_contact(email=submitted_email, phone_number=phone_number)
+        if blocked:
+            flash(blocked_contact_message(blocked), "danger")
+            return redirect(url_for("account"))
 
         u.username = username
-        u.email = email
         upsert_user_contact(u.id, phone_number)
-        db.session.commit()
+        flash_message = "Profile updated."
+        flash_level = "success"
 
-        flash("Profile updated.", "success")
+        if submitted_email != current_email:
+            u.pending_email = submitted_email
+            u.requires_email_verification = True
+            db.session.commit()
+            email_sent, email_message, verify_url = send_email_verification_email(
+                user=u,
+                email=submitted_email,
+                purpose_label="Confirm this new email address to finish updating your account.",
+            )
+            if email_sent:
+                flash_message = f"Profile updated. Verify {submitted_email} from your inbox to finish changing your email."
+            else:
+                flash_message = f"Profile updated, but the verification email could not be sent. Verify here: {verify_url} ({email_message})"
+                flash_level = "warning"
+        else:
+            u.pending_email = None
+            u.requires_email_verification = False
+            db.session.commit()
+
+        flash(flash_message, flash_level)
         return redirect(url_for("account"))
 
     @app.post("/account/password")
@@ -995,9 +1746,15 @@ def create_app():
             return redirect(url_for("select_cafe"))
 
         cafe = db.session.get(Cafe, int(cafe_id))
-        if not cafe or not cafe.is_active:
+        if not cafe or not cafe_is_available(cafe):
             flash("Cafe not found.", "danger")
             return redirect(url_for("select_cafe"))
+
+        if not user_can_access_cafe(u, cafe):
+            flash("You don’t have access to that cafe yet. Ask staff to scan your QR first.", "danger")
+            return redirect(url_for("select_cafe"))
+
+        return redirect(url_for("cafe_home", cafe_slug=cafe.slug))
 
         if not is_global_admin(u):
             member = CafeMember.query.filter_by(user_id=u.id, cafe_id=cafe.id, is_active=True).first()
@@ -1022,13 +1779,211 @@ def create_app():
     def switch_cafe():
         return select_cafe_post()
 
+    @app.get("/<cafe_slug>/")
+    def cafe_home(cafe_slug: str):
+        cafe = Cafe.query.filter_by(slug=cafe_slug).first()
+        if not cafe or not cafe_is_available(cafe):
+            abort(404)
+
+        u = current_user()
+        if not u:
+            settings = ensure_cafe_settings(cafe)
+            owner_membership = get_cafe_owner_membership(cafe.id)
+            owner_user = db.session.get(User, owner_membership.user_id) if owner_membership else None
+            total_customers = LoyaltyCard.query.filter_by(cafe_id=cafe.id).count()
+            return render_template(
+                "cafe_public_landing.html",
+                cafe=cafe,
+                settings=settings,
+                owner_user=owner_user,
+                total_customers=total_customers,
+            )
+        if not user_can_access_cafe(u, cafe):
+            flash("You don’t have access to that cafe yet.", "danger")
+            return redirect(url_for("select_cafe"))
+
+        session["cafe_id"] = cafe.id
+
+        if is_global_admin(u):
+            return render_staff_home_page(cafe)
+
+        member = CafeMember.query.filter_by(user_id=u.id, cafe_id=cafe.id, is_active=True).first()
+        if member and member.role in ("staff", "manager", "owner"):
+            return render_staff_home_page(cafe)
+
+        return render_card_page_for_user(u, cafe)
+
+    @app.get("/<cafe_slug>/card")
+    @require_login
+    def cafe_card(cafe_slug: str):
+        cafe = Cafe.query.filter_by(slug=cafe_slug).first()
+        if not cafe or not cafe_is_available(cafe):
+            abort(404)
+        u = current_user()
+        if not user_can_access_cafe(u, cafe):
+            flash("You don’t have access to that cafe yet.", "danger")
+            return redirect(url_for("select_cafe"))
+
+        session["cafe_id"] = cafe.id
+        return render_card_page_for_user(u, cafe)
+
+    @app.get("/<cafe_slug>/history")
+    @require_login
+    def cafe_history(cafe_slug: str):
+        cafe = Cafe.query.filter_by(slug=cafe_slug).first()
+        if not cafe or not cafe_is_available(cafe):
+            abort(404)
+        u = current_user()
+        if not user_can_access_cafe(u, cafe):
+            flash("You don’t have access to that cafe yet.", "danger")
+            return redirect(url_for("select_cafe"))
+
+        session["cafe_id"] = cafe.id
+        return render_card_history_page_for_user(u, cafe)
+
+    @app.get("/<cafe_slug>/staff")
+    @require_login
+    def cafe_staff(cafe_slug: str):
+        cafe = Cafe.query.filter_by(slug=cafe_slug).first()
+        if not cafe or not cafe_is_available(cafe):
+            abort(404)
+        u = current_user()
+        if not user_can_access_cafe(u, cafe):
+            flash("You don’t have access to that cafe yet.", "danger")
+            return redirect(url_for("select_cafe"))
+
+        session["cafe_id"] = cafe.id
+        if not is_global_admin(u):
+            member = get_membership(u, cafe)
+            if not member or member.role not in ("staff", "manager", "owner"):
+                abort(403)
+        return render_staff_home_page(cafe)
+
+    @app.get("/<cafe_slug>/manager")
+    @require_login
+    def cafe_manager_dashboard(cafe_slug: str):
+        cafe = Cafe.query.filter_by(slug=cafe_slug).first()
+        if not cafe or not cafe_is_available(cafe):
+            abort(404)
+        u = current_user()
+        if not user_can_access_cafe(u, cafe):
+            flash("You don’t have access to that cafe yet.", "danger")
+            return redirect(url_for("select_cafe"))
+
+        session["cafe_id"] = cafe.id
+        if not is_global_admin(u):
+            member = get_membership(u, cafe)
+            if not member or not is_manager_role(member.role):
+                abort(403)
+        return render_manager_dashboard_page(cafe)
+
+    @app.get("/<cafe_slug>/manager/staff")
+    @require_login
+    def cafe_manager_staff(cafe_slug: str):
+        cafe = Cafe.query.filter_by(slug=cafe_slug).first()
+        if not cafe or not cafe_is_available(cafe):
+            abort(404)
+        u = current_user()
+        if not user_can_access_cafe(u, cafe):
+            flash("You don’t have access to that cafe yet.", "danger")
+            return redirect(url_for("select_cafe"))
+
+        session["cafe_id"] = cafe.id
+        if not is_global_admin(u):
+            member = get_membership(u, cafe)
+            if not member or not is_manager_role(member.role):
+                abort(403)
+        invite_status = (request.args.get("invite_status") or "active").strip().lower()
+        return render_manager_staff_page(cafe, invite_status)
+
+    @app.get("/<cafe_slug>/manager/audit")
+    @require_login
+    def cafe_manager_audit(cafe_slug: str):
+        cafe = Cafe.query.filter_by(slug=cafe_slug).first()
+        if not cafe or not cafe_is_available(cafe):
+            abort(404)
+        u = current_user()
+        if not user_can_access_cafe(u, cafe):
+            flash("You don’t have access to that cafe yet.", "danger")
+            return redirect(url_for("select_cafe"))
+
+        session["cafe_id"] = cafe.id
+        if not is_global_admin(u):
+            member = get_membership(u, cafe)
+            if not member or not is_manager_role(member.role):
+                abort(403)
+        action_filter = (request.args.get("action") or "").strip().lower()
+        q = (request.args.get("q") or "").strip().lower()
+        return render_manager_audit_page(cafe, action_filter, q)
+
+    @app.get("/<cafe_slug>/manager/customers")
+    @require_login
+    def cafe_manager_customers(cafe_slug: str):
+        cafe = Cafe.query.filter_by(slug=cafe_slug).first()
+        if not cafe or not cafe_is_available(cafe):
+            abort(404)
+        u = current_user()
+        if not user_can_access_cafe(u, cafe):
+            flash("You don’t have access to that cafe yet.", "danger")
+            return redirect(url_for("select_cafe"))
+
+        session["cafe_id"] = cafe.id
+        if not is_global_admin(u):
+            member = get_membership(u, cafe)
+            if not member or not is_manager_role(member.role):
+                abort(403)
+        q = (request.args.get("q") or "").strip().lower()
+        return render_manager_customers_page(cafe, q)
+
+    @app.get("/<cafe_slug>/manager/customers/<int:user_id>")
+    @require_login
+    def cafe_manager_customer_profile(cafe_slug: str, user_id: int):
+        cafe = Cafe.query.filter_by(slug=cafe_slug).first()
+        if not cafe or not cafe_is_available(cafe):
+            abort(404)
+        u = current_user()
+        if not user_can_access_cafe(u, cafe):
+            flash("You donâ€™t have access to that cafe yet.", "danger")
+            return redirect(url_for("select_cafe"))
+
+        session["cafe_id"] = cafe.id
+        if not is_global_admin(u):
+            member = get_membership(u, cafe)
+            if not member or not is_manager_role(member.role):
+                abort(403)
+
+        customer = db.session.get(User, user_id)
+        if not customer or customer.is_global_admin:
+            abort(404)
+        return render_manager_customer_profile_page(cafe, customer)
+
+    @app.get("/<cafe_slug>/settings")
+    @require_login
+    def cafe_slug_settings(cafe_slug: str):
+        cafe = Cafe.query.filter_by(slug=cafe_slug).first()
+        if not cafe or not cafe_is_available(cafe):
+            abort(404)
+        u = current_user()
+        if not user_can_access_cafe(u, cafe):
+            flash("You don’t have access to that cafe yet.", "danger")
+            return redirect(url_for("select_cafe"))
+
+        session["cafe_id"] = cafe.id
+        return render_cafe_settings_page(u, cafe)
+
     @app.get("/open-cafe/<int:cafe_id>")
     @require_login
     def open_cafe(cafe_id: int):
         cafe = db.session.get(Cafe, cafe_id)
-        if not cafe or not cafe.is_active:
+        if not cafe or not cafe_is_available(cafe):
             flash("Cafe not found.", "danger")
             return redirect(url_for("select_cafe"))
+
+        if not user_can_access_cafe(current_user(), cafe):
+            flash("You don’t have access to that cafe yet.", "danger")
+            return redirect(url_for("select_cafe"))
+
+        return redirect(url_for("cafe_home", cafe_slug=cafe.slug))
 
         u = current_user()
         if not is_global_admin(u):
@@ -1053,9 +2008,15 @@ def create_app():
     @require_login
     def open_card(cafe_id: int):
         cafe = db.session.get(Cafe, cafe_id)
-        if not cafe or not cafe.is_active:
+        if not cafe or not cafe_is_available(cafe):
             flash("Cafe not found.", "danger")
             return redirect(url_for("select_cafe"))
+
+        if not user_can_access_cafe(current_user(), cafe):
+            flash("You don’t have access to that cafe yet.", "danger")
+            return redirect(url_for("select_cafe"))
+
+        return redirect(url_for("cafe_card", cafe_slug=cafe.slug))
 
         u = current_user()
         if not is_global_admin(u):
@@ -1074,11 +2035,7 @@ def create_app():
     def card():
         u = current_user()
         cafe = current_cafe()
-        settings = ensure_cafe_settings(cafe)
-        card = ensure_loyalty_card(u, cafe)
-        progress = get_loyalty_progress(card, settings, cafe.id)
-        tiers = get_active_reward_tiers(cafe.id) if settings.loyalty_type == "tiered_points" else []
-        return render_template("card.html", card=card, settings=settings, progress=progress, tiers=tiers)
+        return render_card_page_for_user(u, cafe)
 
     @app.get("/card/history")
     @require_login
@@ -1086,14 +2043,7 @@ def create_app():
     def card_history():
         u = current_user()
         cafe = current_cafe()
-        history = (
-            ActivityLog.query
-            .filter_by(cafe_id=cafe.id, target_user_id=u.id)
-            .order_by(ActivityLog.created_at.desc())
-            .limit(100)
-            .all()
-        )
-        return render_template("card_history.html", history=history)
+        return render_card_history_page_for_user(u, cafe)
 
     @app.get("/card/status")
     @require_login
@@ -1143,34 +2093,7 @@ def create_app():
     @require_role_in_cafe("staff", "manager")
     def staff_home():
         cafe = current_cafe()
-        settings = ensure_cafe_settings(cafe)
-        tiers = get_active_reward_tiers(cafe.id) if settings.loyalty_type == "tiered_points" else []
-        recent_activity = (
-            ActivityLog.query
-            .filter(ActivityLog.cafe_id == cafe.id)
-            .filter(ActivityLog.action.in_(["stamp_added", "points_added", "reward_redeemed"]))
-            .order_by(ActivityLog.created_at.desc())
-            .limit(20)
-            .all()
-        )
-        recent_customers = []
-        seen_user_ids = set()
-        for item in recent_activity:
-            if item.target_user_id in seen_user_ids:
-                continue
-            u = db.session.get(User, item.target_user_id)
-            if not u or u.is_global_admin:
-                continue
-            card = LoyaltyCard.query.filter_by(user_id=u.id, cafe_id=cafe.id).first()
-            if not card:
-                continue
-            progress = get_loyalty_progress(card, settings, cafe.id)
-            meta = get_customer_meta(cafe.id, u.id)
-            recent_customers.append((u, card, progress, meta, item))
-            seen_user_ids.add(u.id)
-            if len(recent_customers) >= 6:
-                break
-        return render_template("staff.html", settings=settings, tiers=tiers, recent_customers=recent_customers)
+        return render_staff_home_page(cafe)
 
     @app.get("/staff/lookup")
     @require_login
@@ -1187,6 +2110,8 @@ def create_app():
         u = User.query.filter_by(qr_token=token, is_active=True).first()
         if not u:
             return jsonify({"ok": False, "error": "User not found"}), 404
+        if customer_is_suspended(cafe.id, u.id):
+            return jsonify({"ok": False, "error": "Customer is currently suspended at this cafe"}), 403
 
         if settings.auto_create_card_on_first_scan:
             card = ensure_loyalty_card(u, cafe)
@@ -1207,7 +2132,9 @@ def create_app():
                 "email": u.email,
                 "phone_number": contact.phone_number if contact and contact.phone_number else "",
                 "is_flagged": bool(meta.is_flagged) if meta else False,
+                "is_suspended": bool(meta.is_suspended) if meta else False,
                 "customer_note": meta.note if meta and meta.note else "",
+                "suspension_reason": meta.suspension_reason if meta and meta.suspension_reason else "",
             },
             "card": {
                 "reward_available": bool(card.reward_available),
@@ -1256,6 +2183,12 @@ def create_app():
             if is_ajax_request():
                 return jsonify({"ok": False, "message": "User not found."}), 404
             flash("User not found.", "danger")
+            return redirect(url_for("staff_home"))
+        if customer_is_suspended(cafe.id, u.id):
+            message = "Customer is currently suspended at this cafe."
+            if is_ajax_request():
+                return jsonify({"ok": False, "message": message}), 403
+            flash(message, "danger")
             return redirect(url_for("staff_home"))
 
         if settings.auto_create_card_on_first_scan:
@@ -1340,6 +2273,12 @@ def create_app():
             if is_ajax_request():
                 return jsonify({"ok": False, "message": "User not found."}), 404
             flash("User not found.", "danger")
+            return redirect(url_for("staff_home"))
+        if customer_is_suspended(cafe.id, u.id):
+            message = "Customer is currently suspended at this cafe."
+            if is_ajax_request():
+                return jsonify({"ok": False, "message": message}), 403
+            flash(message, "danger")
             return redirect(url_for("staff_home"))
 
         membership = get_membership(actor, cafe)
@@ -1478,13 +2417,13 @@ def create_app():
         username = (request.form.get("username") or "").strip()
         email = (request.form.get("email") or "").strip().lower()
         phone_number = (request.form.get("phone_number") or "").strip()
-        password = request.form.get("password") or ""
 
-        if not username or not email or not password:
-            flash("Username, email, and password are required.", "danger")
+        if not username or not email:
+            flash("Username and email are required.", "danger")
             return redirect(url_for("staff_home"))
-        if len(password) < 8:
-            flash("Password must be at least 8 characters.", "danger")
+        blocked = get_blocked_contact(email=email, phone_number=phone_number)
+        if blocked:
+            flash(blocked_contact_message(blocked), "danger")
             return redirect(url_for("staff_home"))
         if User.query.filter_by(username=username).first():
             flash("Username already taken.", "danger")
@@ -1501,7 +2440,11 @@ def create_app():
         user = User(
             username=username,
             email=email,
-            password_hash=generate_password_hash(password),
+            password_hash=generate_password_hash(secrets.token_urlsafe(32)),
+            pending_email=None,
+            email_verified_at=None,
+            requires_password_setup=True,
+            requires_email_verification=True,
             is_active=True,
             is_global_admin=False,
         )
@@ -1511,6 +2454,12 @@ def create_app():
         ensure_loyalty_card(user, cafe)
         db.session.commit()
 
+        email_sent, email_message, setup_url = send_new_user_setup_email(
+            user=user,
+            created_by_label=f"{actor.username} from {cafe.name}",
+            cafe=cafe,
+        )
+
         log_activity(
             cafe_id=cafe.id,
             actor_user_id=actor.id,
@@ -1519,7 +2468,10 @@ def create_app():
             note=f"Staff created customer account for {username}"
         )
 
-        flash(f"Created customer account for {username}.", "success")
+        if email_sent:
+            flash(f"Created customer account for {username} and emailed them a password setup link.", "success")
+        else:
+            flash(f"Created customer account for {username}, but email could not be sent. Setup link: {setup_url} ({email_message})", "warning")
         return redirect(url_for("staff_home"))
 
     # ---------------------------
@@ -1531,65 +2483,7 @@ def create_app():
     @require_role_in_cafe("manager")
     def manager_dashboard():
         cafe = current_cafe()
-        settings = ensure_cafe_settings(cafe)
-
-        cards = (
-            LoyaltyCard.query.filter_by(cafe_id=cafe.id)
-            .order_by(LoyaltyCard.updated_at.desc())
-            .limit(300)
-            .all()
-        )
-
-        rows = []
-        for c in cards:
-            u = db.session.get(User, c.user_id)
-            if not u or u.is_global_admin:
-                continue
-            progress = get_loyalty_progress(c, settings, cafe.id)
-            meta = get_customer_meta(cafe.id, u.id)
-            rows.append((u, c, progress, meta))
-
-        total_customers = LoyaltyCard.query.filter_by(cafe_id=cafe.id).count()
-        rewards_ready = LoyaltyCard.query.filter_by(cafe_id=cafe.id, reward_available=True).count()
-
-        today = datetime.utcnow().date()
-        if settings.loyalty_type in ("points", "tiered_points"):
-            activity_today = (
-                db.session.query(func.coalesce(func.sum(ActivityLog.points_delta), 0))
-                .filter(ActivityLog.cafe_id == cafe.id)
-                .filter(ActivityLog.action == "points_added")
-                .filter(func.date(ActivityLog.created_at) == today)
-                .scalar()
-            ) or 0
-        else:
-            activity_today = (
-                db.session.query(func.count(ActivityLog.id))
-                .filter(ActivityLog.cafe_id == cafe.id)
-                .filter(ActivityLog.action == "stamp_added")
-                .filter(func.date(ActivityLog.created_at) == today)
-                .scalar()
-            ) or 0
-
-        recent_activity = (
-            ActivityLog.query.filter_by(cafe_id=cafe.id)
-            .order_by(ActivityLog.created_at.desc())
-            .limit(10)
-            .all()
-        )
-
-        tiers = get_active_reward_tiers(cafe.id) if settings.loyalty_type == "tiered_points" else []
-
-        return render_template(
-            "manager_dashboard.html",
-            rows=rows,
-            settings=settings,
-            total_customers=total_customers,
-            rewards_ready=rewards_ready,
-            activity_today=activity_today,
-            stamps_today=activity_today,
-            recent_activity=recent_activity,
-            tiers=tiers,
-        )
+        return render_manager_dashboard_page(cafe)
 
     @app.get("/manager/audit")
     @require_login
@@ -1599,39 +2493,7 @@ def create_app():
         cafe = current_cafe()
         action_filter = (request.args.get("action") or "").strip().lower()
         q = (request.args.get("q") or "").strip().lower()
-
-        query = ActivityLog.query.filter_by(cafe_id=cafe.id)
-        if action_filter:
-            grouped_actions = {
-                "invites": ["invite_created", "invite_revoked", "invite_accepted", "existing_user_added_to_cafe"],
-                "scans": ["stamp_added", "points_added"],
-                "redemptions": ["reward_redeemed", "loyalty_reset"],
-                "passwords": ["password_changed"],
-                "settings": ["settings_updated"],
-                "staff": ["membership_added", "membership_removed", "membership_role_changed", "customer_note_updated"],
-            }
-            if action_filter in grouped_actions:
-                query = query.filter(ActivityLog.action.in_(grouped_actions[action_filter]))
-            else:
-                query = query.filter(ActivityLog.action == action_filter)
-
-        items = query.order_by(ActivityLog.created_at.desc()).limit(200).all()
-        rows = []
-        for item in items:
-            actor = db.session.get(User, item.actor_user_id) if item.actor_user_id else None
-            target = db.session.get(User, item.target_user_id) if item.target_user_id else None
-            haystack = " ".join(filter(None, [
-                actor.username if actor else "",
-                target.username if target else "",
-                target.email if target else "",
-                item.action,
-                item.note or "",
-            ])).lower()
-            if q and q not in haystack:
-                continue
-            rows.append((item, actor, target))
-
-        return render_template("manager_audit.html", rows=rows, action_filter=action_filter, q=q)
+        return render_manager_audit_page(cafe, action_filter, q)
 
     @app.post("/manager/reset-loyalty")
     @require_login
@@ -1646,17 +2508,17 @@ def create_app():
         user_id = request.form.get("user_id")
         if not user_id or not user_id.isdigit():
             flash("Invalid user.", "danger")
-            return redirect(url_for("manager_dashboard"))
+            return redirect_cafe_manager_dashboard(cafe)
 
         u = db.session.get(User, int(user_id))
         if not u or u.is_global_admin:
             flash("User not found.", "danger")
-            return redirect(url_for("manager_dashboard"))
+            return redirect_cafe_manager_dashboard(cafe)
 
         card = LoyaltyCard.query.filter_by(user_id=u.id, cafe_id=cafe.id).first()
         if not card:
             flash("No loyalty card for this user at this cafe.", "warning")
-            return redirect(url_for("manager_dashboard"))
+            return redirect_cafe_manager_dashboard(cafe)
 
         reset_loyalty(card, settings)
         db.session.commit()
@@ -1670,7 +2532,7 @@ def create_app():
         )
 
         flash(f"Reset loyalty for {u.username}.", "success")
-        return redirect(url_for("manager_dashboard"))
+        return redirect_cafe_manager_dashboard(cafe)
 
     @app.post("/manager/customer-note")
     @require_login
@@ -1680,16 +2542,17 @@ def create_app():
         require_csrf()
         cafe = current_cafe()
         actor = current_user()
+        redirect_to = (request.form.get("redirect_to") or "dashboard").strip().lower()
 
         user_id = (request.form.get("user_id") or "").strip()
         if not user_id.isdigit():
             flash("Invalid customer.", "danger")
-            return redirect(url_for("manager_dashboard"))
+            return redirect_cafe_manager_dashboard(cafe)
 
         u = db.session.get(User, int(user_id))
         if not u or u.is_global_admin:
             flash("Customer not found.", "danger")
-            return redirect(url_for("manager_dashboard"))
+            return redirect_cafe_manager_dashboard(cafe)
 
         note = (request.form.get("note") or "").strip()
         is_flagged = request.form.get("is_flagged") == "on"
@@ -1705,7 +2568,73 @@ def create_app():
         )
 
         flash(f"Updated note for {u.username}.", "success")
-        return redirect(url_for("manager_dashboard"))
+        if redirect_to == "profile":
+            return redirect(url_for("cafe_manager_customer_profile", cafe_slug=cafe.slug, user_id=u.id))
+        return redirect_cafe_manager_dashboard(cafe)
+
+    @app.post("/manager/customer-moderation")
+    @require_login
+    @require_cafe_selected
+    @require_role_in_cafe("manager")
+    def manager_customer_moderation():
+        require_csrf()
+        cafe = current_cafe()
+        actor = current_user()
+
+        user_id = (request.form.get("user_id") or "").strip()
+        if not user_id.isdigit():
+            flash("Invalid customer.", "danger")
+            return redirect_cafe_manager_customers(cafe)
+
+        customer = db.session.get(User, int(user_id))
+        if not customer or customer.is_global_admin:
+            flash("Customer not found.", "danger")
+            return redirect_cafe_manager_customers(cafe)
+
+        action = (request.form.get("action") or "").strip().lower()
+        reason = (request.form.get("reason") or "").strip()
+        note = (request.form.get("note") or "").strip()
+
+        if action == "suspend":
+            update_customer_suspension(
+                cafe.id,
+                customer.id,
+                actor_user_id=actor.id,
+                is_suspended=True,
+                reason=reason or "manager_action",
+                note=note,
+            )
+            db.session.commit()
+            log_activity(
+                cafe_id=cafe.id,
+                actor_user_id=actor.id,
+                target_user_id=customer.id,
+                action="customer_suspended",
+                note=f"Suspended customer. Reason: {reason or 'manager_action'}{f' | {note}' if note else ''}"
+            )
+            flash(f"Suspended {customer.username} at {cafe.name}.", "success")
+        elif action == "reactivate":
+            update_customer_suspension(
+                cafe.id,
+                customer.id,
+                actor_user_id=actor.id,
+                is_suspended=False,
+                reason=None,
+                note=None,
+            )
+            db.session.commit()
+            log_activity(
+                cafe_id=cafe.id,
+                actor_user_id=actor.id,
+                target_user_id=customer.id,
+                action="customer_reactivated",
+                note="Reactivated customer"
+            )
+            flash(f"Reactivated {customer.username}.", "success")
+        else:
+            flash("Unknown customer moderation action.", "danger")
+
+        return redirect(url_for("cafe_manager_customer_profile", cafe_slug=cafe.slug, user_id=customer.id))
 
     @app.get("/manager/staff")
     @require_login
@@ -1714,41 +2643,7 @@ def create_app():
     def manager_staff():
         cafe = current_cafe()
         invite_status = (request.args.get("invite_status") or "active").strip().lower()
-
-        members = (
-            CafeMember.query.filter_by(cafe_id=cafe.id)
-            .order_by(CafeMember.role.asc(), CafeMember.created_at.desc())
-            .all()
-        )
-
-        rows = []
-        for m in members:
-            u = db.session.get(User, m.user_id)
-            if not u or u.is_global_admin:
-                continue
-            rows.append((u, m))
-
-        active_invites = (
-            StaffInvite.query.filter_by(cafe_id=cafe.id, is_active=True)
-            .filter(StaffInvite.accepted_at.is_(None))
-            .filter(StaffInvite.expires_at >= datetime.utcnow())
-            .order_by(StaffInvite.created_at.desc())
-            .all()
-        )
-
-        invite_query = StaffInvite.query.filter_by(cafe_id=cafe.id)
-        if invite_status == "accepted":
-            invite_query = invite_query.filter(StaffInvite.accepted_at.isnot(None))
-        elif invite_status == "revoked":
-            invite_query = invite_query.filter(StaffInvite.is_active == False).filter(StaffInvite.accepted_at.is_(None))
-        elif invite_status == "expired":
-            invite_query = invite_query.filter(StaffInvite.expires_at < datetime.utcnow()).filter(StaffInvite.accepted_at.is_(None))
-        else:
-            invite_query = invite_query.filter(StaffInvite.is_active == True).filter(StaffInvite.accepted_at.is_(None)).filter(StaffInvite.expires_at >= datetime.utcnow())
-
-        invite_history = invite_query.order_by(StaffInvite.created_at.desc()).limit(100).all()
-
-        return render_template("manager_staff.html", rows=rows, invites=active_invites, invite_history=invite_history, invite_status=invite_status, current_time=datetime.utcnow())
+        return render_manager_staff_page(cafe, invite_status)
 
     @app.get("/manager/customers")
     @require_login
@@ -1756,45 +2651,19 @@ def create_app():
     @require_role_in_cafe("manager")
     def manager_customers():
         cafe = current_cafe()
-        settings = ensure_cafe_settings(cafe)
         q = (request.args.get("q") or "").strip().lower()
+        return render_manager_customers_page(cafe, q)
 
-        cards = LoyaltyCard.query.filter_by(cafe_id=cafe.id).order_by(LoyaltyCard.updated_at.desc()).all()
-        rows = []
-        for card in cards:
-            u = db.session.get(User, card.user_id)
-            if not u or u.is_global_admin:
-                continue
-            progress = get_loyalty_progress(card, settings, cafe.id)
-            meta = get_customer_meta(cafe.id, u.id)
-            haystack = f"{u.username} {u.email} {meta.note if meta and meta.note else ''}".lower()
-            if q and q not in haystack:
-                continue
-            rows.append((u, card, progress, meta))
-
-        if request.args.get("format") == "csv":
-            output = io.StringIO()
-            writer = csv.writer(output)
-            writer.writerow(["Username", "Email", "Current", "Required", "Unit", "Reward Ready", "Flagged", "Note", "Last Activity"])
-            for u, card, progress, meta in rows:
-                writer.writerow([
-                    u.username,
-                    u.email,
-                    progress["current"],
-                    progress["required"],
-                    progress["unit_label"],
-                    "Yes" if card.reward_available else "No",
-                    "Yes" if meta and meta.is_flagged else "No",
-                    meta.note if meta and meta.note else "",
-                    card.last_activity_at.isoformat() if card.last_activity_at else "",
-                ])
-            return Response(
-                output.getvalue(),
-                mimetype="text/csv",
-                headers={"Content-Disposition": f"attachment; filename={cafe.slug}-customers.csv"}
-            )
-
-        return render_template("manager_customers.html", rows=rows, q=q)
+    @app.get("/manager/customers/<int:user_id>")
+    @require_login
+    @require_cafe_selected
+    @require_role_in_cafe("manager")
+    def manager_customer_profile(user_id: int):
+        cafe = current_cafe()
+        customer = db.session.get(User, user_id)
+        if not customer or customer.is_global_admin:
+            abort(404)
+        return render_manager_customer_profile_page(cafe, customer)
 
     @app.post("/manager/staff/add")
     @require_login
@@ -1812,7 +2681,7 @@ def create_app():
 
         if not identifier:
             flash("Enter a username or email.", "danger")
-            return redirect(url_for("manager_staff"))
+            return redirect_cafe_manager_staff(cafe)
 
         u = User.query.filter(
             (User.username == identifier) | (User.email == identifier.lower())
@@ -1823,16 +2692,19 @@ def create_app():
 
         if not u:
             flash("User not found.", "danger")
-            return redirect(url_for("manager_staff"))
+            return redirect_cafe_manager_staff(cafe)
         if u.is_global_admin:
             flash("Cannot assign global admins.", "danger")
-            return redirect(url_for("manager_staff"))
+            return redirect_cafe_manager_staff(cafe)
 
         mem = CafeMember.query.filter_by(user_id=u.id, cafe_id=cafe.id).first()
         if not mem:
             mem = CafeMember(user_id=u.id, cafe_id=cafe.id, role=role, is_active=True)
             db.session.add(mem)
         else:
+            if mem.role == "owner":
+                flash("Cafe owners cannot be changed by another manager.", "danger")
+                return redirect_cafe_manager_staff(cafe)
             mem.role = role
             mem.is_active = True
 
@@ -1847,7 +2719,7 @@ def create_app():
         )
 
         flash(f"Added {u.username} as {role} at {cafe.name}.", "success")
-        return redirect(url_for("manager_staff"))
+        return redirect_cafe_manager_staff(cafe)
 
     @app.post("/manager/staff/update")
     @require_login
@@ -1862,17 +2734,20 @@ def create_app():
 
         if not member_id.isdigit():
             flash("Invalid member.", "danger")
-            return redirect(url_for("manager_staff"))
+            return redirect_cafe_manager_staff(cafe)
 
         mem = db.session.get(CafeMember, int(member_id))
         if not mem or mem.cafe_id != cafe.id:
             flash("Member not found.", "danger")
-            return redirect(url_for("manager_staff"))
+            return redirect_cafe_manager_staff(cafe)
 
         u = db.session.get(User, mem.user_id)
         if not u or u.is_global_admin:
             flash("Cannot edit this user.", "danger")
-            return redirect(url_for("manager_staff"))
+            return redirect_cafe_manager_staff(cafe)
+        if mem.role == "owner":
+            flash("Cafe owners cannot be changed by another manager.", "danger")
+            return redirect_cafe_manager_staff(cafe)
 
         if action == "deactivate":
             mem.is_active = False
@@ -1885,21 +2760,20 @@ def create_app():
                 note="Removed from cafe"
             )
             flash(f"Removed {u.username} from this cafe.", "success")
-            return redirect(url_for("manager_staff"))
+            return redirect_cafe_manager_staff(cafe)
 
         if action == "set_role":
             role = (request.form.get("role") or "").strip().lower()
             if role not in ("staff", "manager"):
                 flash("Invalid role.", "danger")
-                return redirect(url_for("manager_staff"))
-            mem.role = role
-            mem.is_active = True
+                return redirect_cafe_manager_staff(cafe)
+            assign_membership_role(mem, role)
             db.session.commit()
             flash(f"Updated {u.username} to {role}.", "success")
-            return redirect(url_for("manager_staff"))
+            return redirect_cafe_manager_staff(cafe)
 
         flash("Unknown action.", "danger")
-        return redirect(url_for("manager_staff"))
+        return redirect_cafe_manager_staff(cafe)
 
     @app.post("/manager/staff/set-password")
     @require_login
@@ -1912,41 +2786,48 @@ def create_app():
 
         if not settings.staff_can_change_password:
             flash("Managers are not allowed to change staff passwords at this cafe.", "danger")
-            return redirect(url_for("manager_staff"))
+            return redirect_cafe_manager_staff(cafe)
 
         member_id = request.form.get("member_id", "")
-        new_password = request.form.get("new_password") or ""
 
         if not member_id.isdigit():
             flash("Invalid member.", "danger")
-            return redirect(url_for("manager_staff"))
-        if len(new_password) < 8:
-            flash("Password must be at least 8 characters.", "danger")
-            return redirect(url_for("manager_staff"))
+            return redirect_cafe_manager_staff(cafe)
 
         mem = db.session.get(CafeMember, int(member_id))
         if not mem or mem.cafe_id != cafe.id or not mem.is_active:
             flash("Member not found.", "danger")
-            return redirect(url_for("manager_staff"))
+            return redirect_cafe_manager_staff(cafe)
 
         target_user = db.session.get(User, mem.user_id)
         if not target_user or target_user.is_global_admin:
             flash("Cannot change this user.", "danger")
-            return redirect(url_for("manager_staff"))
+            return redirect_cafe_manager_staff(cafe)
 
-        target_user.password_hash = generate_password_hash(new_password)
+        target_user.password_hash = generate_password_hash(secrets.token_urlsafe(32))
+        target_user.requires_password_setup = True
+        target_user.requires_email_verification = True
         db.session.commit()
+
+        email_sent, email_message, setup_url = send_new_user_setup_email(
+            user=target_user,
+            created_by_label=f"{current_user().username} from {cafe.name}",
+            cafe=cafe,
+        )
 
         log_activity(
             cafe_id=cafe.id,
             actor_user_id=current_user().id,
             target_user_id=target_user.id,
             action="password_changed",
-            note="Manager changed password"
+            note="Manager forced password reset"
         )
 
-        flash(f"Password updated for {target_user.username}.", "success")
-        return redirect(url_for("manager_staff"))
+        if email_sent:
+            flash(f"Password setup email sent to {target_user.username}.", "success")
+        else:
+            flash(f"Password setup email could not be sent. Setup link: {setup_url} ({email_message})", "warning")
+        return redirect_cafe_manager_staff(cafe)
 
     @app.post("/manager/invites/create")
     @require_login
@@ -1960,11 +2841,11 @@ def create_app():
 
         if not global_settings.allow_global_manager_invites:
             flash("Manager invites are disabled globally.", "danger")
-            return redirect(url_for("manager_staff"))
+            return redirect_cafe_manager_staff(cafe)
 
         if not settings.allow_manager_invites:
             flash("Manager invites are disabled for this cafe.", "danger")
-            return redirect(url_for("manager_staff"))
+            return redirect_cafe_manager_staff(cafe)
 
         email = (request.form.get("email") or "").strip().lower()
         role = (request.form.get("role") or settings.default_invite_role).strip().lower()
@@ -1973,7 +2854,11 @@ def create_app():
 
         if not email:
             flash("Email is required.", "danger")
-            return redirect(url_for("manager_staff"))
+            return redirect_cafe_manager_staff(cafe)
+        blocked = get_blocked_contact(email=email)
+        if blocked:
+            flash(blocked_contact_message(blocked), "danger")
+            return redirect_cafe_manager_staff(cafe)
 
         existing_user = User.query.filter_by(email=email).first()
         if existing_user:
@@ -1987,12 +2872,16 @@ def create_app():
                 )
                 db.session.add(member)
             else:
+                if member.role == "owner":
+                    flash("Cafe owners cannot be changed by another manager.", "danger")
+                    return redirect_cafe_manager_staff(cafe)
                 member.role = role
                 member.is_active = True
 
             db.session.commit()
 
-            cafe_url = url_for("open_cafe", cafe_id=cafe.id, _external=True)
+            cafe_url = url_for("cafe_home", cafe_slug=cafe.slug, _external=True)
+            branding = get_email_branding(cafe)
             email_sent, email_message = send_app_email(
                 to_email=email,
                 subject=f"You’ve been added to {cafe.name}",
@@ -2008,6 +2897,7 @@ def create_app():
                     cafe_name=cafe.name,
                     role=role,
                     cafe_url=cafe_url,
+                    **branding,
                 ),
             )
 
@@ -2023,7 +2913,7 @@ def create_app():
                 flash("Existing user added to cafe and emailed.", "success")
             else:
                 flash(f"Existing user added to cafe, but email could not be sent. {email_message}", "warning")
-            return redirect(url_for("manager_staff"))
+            return redirect_cafe_manager_staff(cafe)
 
         invite = StaffInvite(
             cafe_id=cafe.id,
@@ -2036,24 +2926,10 @@ def create_app():
         db.session.add(invite)
         db.session.commit()
 
-        invite_url = url_for("invite_accept", token=invite.token, _external=True)
-        email_sent, email_message = send_app_email(
-            to_email=email,
-            subject=f"Invitation to join {cafe.name}",
-            text_body=(
-                f"You have been invited to join {cafe.name} as {role}.\n\n"
-                f"Accept your invite here:\n{invite_url}\n\n"
-                f"This invite expires on {invite.expires_at} UTC.\n"
-            ),
-            html_body=render_template(
-                "emails/invite_email.html",
-                site_name=ensure_global_settings().site_name,
-                cafe_name=cafe.name,
-                role=role,
-                invite_email=email,
-                invite_url=invite_url,
-                expires_at=invite.expires_at,
-            ),
+        email_sent, email_message, invite_url = send_staff_invite_email(
+            invite=invite,
+            cafe=cafe,
+            site_name=ensure_global_settings().site_name,
         )
 
         log_activity(
@@ -2068,7 +2944,7 @@ def create_app():
             flash("Invite created and emailed.", "success")
         else:
             flash(f"Invite created, but email could not be sent. {email_message}", "warning")
-        return redirect(url_for("manager_staff"))
+        return redirect_cafe_manager_staff(cafe)
 
     @app.post("/manager/invites/revoke")
     @require_login
@@ -2081,16 +2957,16 @@ def create_app():
         invite_id = (request.form.get("invite_id") or "").strip()
         if not invite_id.isdigit():
             flash("Invalid invite.", "danger")
-            return redirect(url_for("manager_staff"))
+            return redirect_cafe_manager_staff(cafe)
 
         invite = db.session.get(StaffInvite, int(invite_id))
         if not invite or invite.cafe_id != cafe.id:
             flash("Invite not found.", "danger")
-            return redirect(url_for("manager_staff"))
+            return redirect_cafe_manager_staff(cafe)
 
         if not invite.is_active or invite.accepted_at:
             flash("Invite is no longer active.", "warning")
-            return redirect(url_for("manager_staff"))
+            return redirect_cafe_manager_staff(cafe)
 
         invite.is_active = False
         db.session.commit()
@@ -2104,7 +2980,45 @@ def create_app():
         )
 
         flash("Invite revoked.", "success")
-        return redirect(url_for("manager_staff"))
+        return redirect_cafe_manager_staff(cafe)
+
+    @app.post("/manager/invites/resend")
+    @require_login
+    @require_cafe_selected
+    @require_role_in_cafe("manager")
+    def manager_resend_invite():
+        require_csrf()
+        cafe = current_cafe()
+
+        invite_id = (request.form.get("invite_id") or "").strip()
+        if not invite_id.isdigit():
+            flash("Invalid invite.", "danger")
+            return redirect_cafe_manager_staff(cafe)
+
+        invite = db.session.get(StaffInvite, int(invite_id))
+        if not invite or invite.cafe_id != cafe.id:
+            flash("Invite not found.", "danger")
+            return redirect_cafe_manager_staff(cafe)
+        if invite.accepted_at:
+            flash("This invite has already been accepted.", "warning")
+            return redirect_cafe_manager_staff(cafe, invite_status="accepted")
+        if not invite.is_active:
+            flash("This invite is no longer active.", "warning")
+            return redirect_cafe_manager_staff(cafe)
+        if invite.expires_at and invite.expires_at < datetime.utcnow():
+            flash("This invite has expired.", "warning")
+            return redirect_cafe_manager_staff(cafe, invite_status="expired")
+
+        email_sent, email_message, invite_url = send_staff_invite_email(
+            invite=invite,
+            cafe=cafe,
+            site_name=ensure_global_settings().site_name,
+        )
+        if email_sent:
+            flash("Invite email resent.", "success")
+        else:
+            flash(f"Invite email could not be sent. Invite link: {invite_url} ({email_message})", "warning")
+        return redirect_cafe_manager_staff(cafe)
 
     # ---------------------------
     # Settings
@@ -2115,15 +3029,7 @@ def create_app():
     def cafe_settings():
         u = current_user()
         cafe = current_cafe()
-
-        if not is_global_admin(u):
-            m = get_membership(u, cafe)
-            if not m or m.role != "manager":
-                abort(403)
-
-        settings = ensure_cafe_settings(cafe)
-        tiers = get_active_reward_tiers(cafe.id)
-        return render_template("cafe_settings.html", settings=settings, tiers=tiers)
+        return render_cafe_settings_page(u, cafe)
 
     @app.post("/settings")
     @require_login
@@ -2159,7 +3065,7 @@ def create_app():
                 note="Cafe settings reset to global defaults"
             )
             flash("Cafe settings reset to global defaults.", "success")
-            return redirect(url_for("cafe_settings"))
+            return redirect_cafe_settings_page(cafe)
 
         cafe.logo_url = (request.form.get("logo_url") or "").strip() or None
         cafe.accent_color = (request.form.get("accent_color") or cafe.accent_color).strip()
@@ -2196,6 +3102,10 @@ def create_app():
         if welcome_message:
             settings.welcome_message = welcome_message
 
+        cafe.public_location = (request.form.get("public_location") or "").strip() or None
+        cafe.public_opening_hours = (request.form.get("public_opening_hours") or "").strip() or None
+        cafe.public_join_instructions = (request.form.get("public_join_instructions") or "").strip() or None
+
         settings.show_qr_label = request.form.get("show_qr_label") == "on"
         settings.show_stamp_numbers = request.form.get("show_stamp_numbers") == "on"
         settings.show_progress_bar = request.form.get("show_progress_bar") == "on"
@@ -2231,7 +3141,7 @@ def create_app():
             note="Cafe settings updated"
         )
         flash("Settings updated.", "success")
-        return redirect(url_for("cafe_settings"))
+        return redirect_cafe_settings_page(cafe)
 
     @app.post("/settings/tiers/add")
     @require_login
@@ -2251,10 +3161,10 @@ def create_app():
 
         if not points_required.isdigit() or int(points_required) < 1:
             flash("Points required must be a positive number.", "danger")
-            return redirect(url_for("cafe_settings"))
+            return redirect_cafe_settings_page(cafe)
         if not reward_name:
             flash("Reward name is required.", "danger")
-            return redirect(url_for("cafe_settings"))
+            return redirect_cafe_settings_page(cafe)
 
         existing = RewardTier.query.filter_by(cafe_id=cafe.id, points_required=int(points_required)).first()
         if existing:
@@ -2270,7 +3180,7 @@ def create_app():
 
         db.session.commit()
         flash("Reward tier saved.", "success")
-        return redirect(url_for("cafe_settings"))
+        return redirect_cafe_settings_page(cafe)
 
     @app.post("/settings/tiers/delete")
     @require_login
@@ -2288,17 +3198,17 @@ def create_app():
         tier_id = request.form.get("tier_id", "")
         if not tier_id.isdigit():
             flash("Invalid tier.", "danger")
-            return redirect(url_for("cafe_settings"))
+            return redirect_cafe_settings_page(cafe)
 
         tier = db.session.get(RewardTier, int(tier_id))
         if not tier or tier.cafe_id != cafe.id:
             flash("Tier not found.", "danger")
-            return redirect(url_for("cafe_settings"))
+            return redirect_cafe_settings_page(cafe)
 
         db.session.delete(tier)
         db.session.commit()
         flash("Reward tier deleted.", "success")
-        return redirect(url_for("cafe_settings"))
+        return redirect_cafe_settings_page(cafe)
 
     # ---------------------------
     # Admin cafe management
@@ -2320,7 +3230,8 @@ def create_app():
         slug = (request.form.get("slug") or "").strip().lower()
         manager_email = (request.form.get("manager_email") or "").strip().lower()
         manager_username = (request.form.get("manager_username") or "").strip()
-        manager_password = request.form.get("manager_password") or ""
+        new_manager_created = False
+        new_manager_user = None
 
         if not cafe_name:
             flash("Cafe name required.", "danger")
@@ -2344,11 +3255,16 @@ def create_app():
         db.session.add(build_default_cafe_settings(cafe.id, global_settings))
 
         if manager_email:
+            blocked = get_blocked_contact(email=manager_email)
+            if blocked:
+                flash(blocked_contact_message(blocked), "danger")
+                db.session.rollback()
+                return redirect(url_for("admin_create_cafe"))
             manager_user = User.query.filter_by(email=manager_email).first()
 
             if not manager_user:
-                if not manager_username or len(manager_password) < 8:
-                    flash("To create a new manager, provide username and 8+ char password.", "danger")
+                if not manager_username:
+                    flash("To create a new manager, provide a username.", "danger")
                     db.session.rollback()
                     return redirect(url_for("admin_create_cafe"))
 
@@ -2360,24 +3276,43 @@ def create_app():
                 manager_user = User(
                     username=manager_username,
                     email=manager_email,
-                    password_hash=generate_password_hash(manager_password),
+                    password_hash=generate_password_hash(secrets.token_urlsafe(32)),
+                    pending_email=None,
+                    email_verified_at=None,
+                    requires_password_setup=True,
+                    requires_email_verification=True,
                     is_active=True,
                     is_global_admin=False,
                 )
                 db.session.add(manager_user)
                 db.session.flush()
+                new_manager_created = True
+                new_manager_user = manager_user
 
             existing = CafeMember.query.filter_by(user_id=manager_user.id, cafe_id=cafe.id).first()
             if not existing:
                 db.session.add(CafeMember(
                     user_id=manager_user.id,
                     cafe_id=cafe.id,
-                    role="manager",
+                    role="owner",
                     is_active=True
                 ))
+            else:
+                assign_membership_role(existing, "owner")
 
         db.session.commit()
-        flash(f"Created cafe '{cafe.name}'.", "success")
+        if new_manager_created and new_manager_user:
+            email_sent, email_message, setup_url = send_new_user_setup_email(
+                user=new_manager_user,
+                created_by_label=f"An admin from {ensure_global_settings().site_name}",
+                cafe=cafe,
+            )
+            if email_sent:
+                flash(f"Created cafe '{cafe.name}' and sent manager onboarding email.", "success")
+            else:
+                flash(f"Created cafe '{cafe.name}', but manager onboarding email could not be sent. Setup link: {setup_url} ({email_message})", "warning")
+        else:
+            flash(f"Created cafe '{cafe.name}'.", "success")
         return redirect(url_for("select_cafe"))
 
     @app.route("/admin/settings", methods=["GET", "POST"])
@@ -2386,6 +3321,7 @@ def create_app():
     def admin_global_settings():
         settings = ensure_global_settings()
         email_settings = ensure_email_settings()
+        blocked_contacts = BlockedContact.query.order_by(BlockedContact.created_at.desc()).all()
 
         if request.method == "POST":
             require_csrf()
@@ -2449,7 +3385,65 @@ def create_app():
             flash("Global settings updated.", "success")
             return redirect(url_for("admin_global_settings"))
 
-        return render_template("admin_global_settings.html", settings=settings, email_settings=email_settings)
+        return render_template("admin_global_settings.html", settings=settings, email_settings=email_settings, blocked_contacts=blocked_contacts)
+
+    @app.post("/admin/settings/blocked-contacts/add")
+    @require_login
+    @require_global_admin
+    def admin_add_blocked_contact():
+        require_csrf()
+
+        block_type = (request.form.get("block_type") or "").strip().lower()
+        raw_value = (request.form.get("raw_value") or "").strip()
+        note = (request.form.get("note") or "").strip()
+
+        if block_type not in ("email", "phone"):
+            flash("Choose email or phone.", "danger")
+            return redirect(url_for("admin_global_settings"))
+        if not raw_value:
+            flash("A value is required.", "danger")
+            return redirect(url_for("admin_global_settings"))
+
+        normalized_value = normalize_email(raw_value) if block_type == "email" else normalize_phone(raw_value)
+        if not normalized_value:
+            flash("Enter a valid value.", "danger")
+            return redirect(url_for("admin_global_settings"))
+
+        existing = BlockedContact.query.filter_by(block_type=block_type, normalized_value=normalized_value).first()
+        if existing:
+            flash("That contact is already blocked.", "warning")
+            return redirect(url_for("admin_global_settings"))
+
+        db.session.add(BlockedContact(
+            block_type=block_type,
+            raw_value=raw_value,
+            normalized_value=normalized_value,
+            note=note or None,
+        ))
+        db.session.commit()
+        flash("Blocked contact added.", "success")
+        return redirect(url_for("admin_global_settings"))
+
+    @app.post("/admin/settings/blocked-contacts/delete")
+    @require_login
+    @require_global_admin
+    def admin_delete_blocked_contact():
+        require_csrf()
+
+        blocked_id = (request.form.get("blocked_id") or "").strip()
+        if not blocked_id.isdigit():
+            flash("Invalid blocked contact.", "danger")
+            return redirect(url_for("admin_global_settings"))
+
+        blocked = db.session.get(BlockedContact, int(blocked_id))
+        if not blocked:
+            flash("Blocked contact not found.", "danger")
+            return redirect(url_for("admin_global_settings"))
+
+        db.session.delete(blocked)
+        db.session.commit()
+        flash("Blocked contact removed.", "success")
+        return redirect(url_for("admin_global_settings"))
 
     @app.get("/admin/cafes")
     @require_login
@@ -2465,7 +3459,17 @@ def create_app():
             manager_count = CafeMember.query.filter_by(cafe_id=cafe.id, role="manager", is_active=True).count()
             member_count = CafeMember.query.filter_by(cafe_id=cafe.id, is_active=True).count()
             customer_count = LoyaltyCard.query.filter_by(cafe_id=cafe.id).count()
-            rows.append((cafe, manager_count, member_count, customer_count))
+            owner_membership = get_cafe_owner_membership(cafe.id)
+            owner_user = db.session.get(User, owner_membership.user_id) if owner_membership else None
+            manager_options = (
+                db.session.query(CafeMember, User)
+                .join(User, User.id == CafeMember.user_id)
+                .filter(CafeMember.cafe_id == cafe.id, CafeMember.is_active == True)  # noqa: E712
+                .filter(CafeMember.role.in_(("owner", "manager")))
+                .order_by(User.username.asc())
+                .all()
+            )
+            rows.append((cafe, manager_count + (1 if owner_membership else 0), member_count, customer_count, owner_user, manager_options))
         return render_template("admin_cafes.html", rows=rows, q=q)
 
     @app.post("/admin/cafes/<int:cafe_id>/update")
@@ -2494,10 +3498,41 @@ def create_app():
             flash(f"Updated {cafe.name}.", "success")
             return redirect(url_for("admin_cafes"))
 
-        if action == "toggle_active":
-            cafe.is_active = not cafe.is_active
+        if action == "disable":
+            cafe.is_active = False
             db.session.commit()
-            flash(f"{'Reopened' if cafe.is_active else 'Archived'} {cafe.name}.", "success")
+            flash(f"Disabled {cafe.name}.", "success")
+            return redirect(url_for("admin_cafes"))
+
+        if action == "archive":
+            cafe.is_active = False
+            cafe.is_archived = True
+            db.session.commit()
+            flash(f"Archived {cafe.name}.", "success")
+            return redirect(url_for("admin_cafes"))
+
+        if action == "reopen":
+            cafe.is_archived = False
+            cafe.is_active = True
+            db.session.commit()
+            flash(f"Reopened {cafe.name}.", "success")
+            return redirect(url_for("admin_cafes"))
+
+        if action == "set_owner":
+            member_id = (request.form.get("owner_member_id") or "").strip()
+            if not member_id.isdigit():
+                flash("Pick a manager to make cafe owner.", "danger")
+                return redirect(url_for("admin_cafes"))
+            member = db.session.get(CafeMember, int(member_id))
+            if not member or member.cafe_id != cafe.id or not member.is_active:
+                flash("Manager not found.", "danger")
+                return redirect(url_for("admin_cafes"))
+            if member.role not in ("owner", "manager"):
+                flash("Only managers can become cafe owner.", "danger")
+                return redirect(url_for("admin_cafes"))
+            assign_membership_role(member, "owner")
+            db.session.commit()
+            flash("Cafe owner updated.", "success")
             return redirect(url_for("admin_cafes"))
 
         flash("Unknown cafe action.", "danger")
@@ -2531,15 +3566,15 @@ def create_app():
             username = (request.form.get("username") or "").strip()
             email = (request.form.get("email") or "").strip().lower()
             phone_number = (request.form.get("phone_number") or "").strip()
-            password = request.form.get("password") or ""
             is_admin = request.form.get("is_global_admin") == "on"
             is_active = request.form.get("is_active") == "on"
 
-            if not username or not email or not password:
-                flash("Username, email, and password required.", "danger")
+            if not username or not email:
+                flash("Username and email required.", "danger")
                 return redirect(url_for("admin_user_create"))
-            if len(password) < 8:
-                flash("Password must be at least 8 characters.", "danger")
+            blocked = get_blocked_contact(email=email, phone_number=phone_number)
+            if blocked:
+                flash(blocked_contact_message(blocked), "danger")
                 return redirect(url_for("admin_user_create"))
             if User.query.filter_by(username=username).first():
                 flash("Username already taken.", "danger")
@@ -2555,7 +3590,11 @@ def create_app():
             u = User(
                 username=username,
                 email=email,
-                password_hash=generate_password_hash(password),
+                password_hash=generate_password_hash(secrets.token_urlsafe(32)),
+                pending_email=None,
+                email_verified_at=None,
+                requires_password_setup=True,
+                requires_email_verification=True,
                 is_active=is_active,
                 is_global_admin=is_admin,
             )
@@ -2564,10 +3603,23 @@ def create_app():
             upsert_user_contact(u.id, phone_number)
             db.session.commit()
 
-            flash("User created.", "success")
+            email_sent, email_message, setup_url = send_new_user_setup_email(
+                user=u,
+                created_by_label=f"An admin from {ensure_global_settings().site_name}",
+            )
+
+            if email_sent:
+                flash("User created and welcome email sent.", "success")
+            else:
+                flash(f"User created, but email could not be sent. Setup link: {setup_url} ({email_message})", "warning")
             return redirect(url_for("admin_users"))
 
-        cafes = Cafe.query.filter_by(is_active=True).order_by(Cafe.name.asc()).all()
+        cafes = (
+            Cafe.query
+            .filter(Cafe.is_active == True, Cafe.is_archived == False)  # noqa: E712
+            .order_by(Cafe.name.asc())
+            .all()
+        )
         return render_template("admin_user_create.html", cafes=cafes)
 
     @app.get("/admin/users/<int:user_id>")
@@ -2578,9 +3630,14 @@ def create_app():
         if not u:
             abort(404)
 
-        cafes = Cafe.query.filter_by(is_active=True).order_by(Cafe.name.asc()).all()
+        cafes = (
+            Cafe.query
+            .filter(Cafe.is_active == True, Cafe.is_archived == False)  # noqa: E712
+            .order_by(Cafe.name.asc())
+            .all()
+        )
         memberships = CafeMember.query.filter_by(user_id=u.id).order_by(CafeMember.created_at.desc()).all()
-        cafe_map = {c.id: c for c in cafes}
+        cafe_map = {c.id: c for c in Cafe.query.order_by(Cafe.name.asc()).all()}
 
         return render_template(
             "admin_user_manage.html",
@@ -2613,14 +3670,33 @@ def create_app():
             flash("Global admin flag updated.", "success")
             return redirect(url_for("admin_user_manage", user_id=user_id))
 
-        if action == "reset_password":
-            pw = request.form.get("password") or ""
-            if len(pw) < 8:
-                flash("Password must be at least 8 characters.", "danger")
-                return redirect(url_for("admin_user_manage", user_id=user_id))
-            u.password_hash = generate_password_hash(pw)
+        if action == "send_setup_email":
+            u.requires_password_setup = True
+            u.requires_email_verification = True
             db.session.commit()
-            flash("Password reset.", "success")
+            email_sent, email_message, setup_url = send_new_user_setup_email(
+                user=u,
+                created_by_label=f"An admin from {ensure_global_settings().site_name}",
+            )
+            if email_sent:
+                flash("Setup email sent.", "success")
+            else:
+                flash(f"Setup email could not be sent. Setup link: {setup_url} ({email_message})", "warning")
+            return redirect(url_for("admin_user_manage", user_id=user_id))
+
+        if action == "force_password_reset":
+            u.password_hash = generate_password_hash(secrets.token_urlsafe(32))
+            u.requires_password_setup = True
+            u.requires_email_verification = True
+            db.session.commit()
+            email_sent, email_message, setup_url = send_new_user_setup_email(
+                user=u,
+                created_by_label=f"An admin from {ensure_global_settings().site_name}",
+            )
+            if email_sent:
+                flash("Password reset email sent.", "success")
+            else:
+                flash(f"Password reset email could not be sent. Setup link: {setup_url} ({email_message})", "warning")
             return redirect(url_for("admin_user_manage", user_id=user_id))
 
         flash("Unknown action.", "danger")
@@ -2642,14 +3718,14 @@ def create_app():
             role = (request.form.get("role") or "staff").strip().lower()
             is_active = request.form.get("is_active") == "on"
 
-            if role not in ("staff", "manager"):
+            if role not in ("staff", "manager", "owner"):
                 role = "staff"
             if not cafe_id.isdigit():
                 flash("Pick a cafe.", "danger")
                 return redirect(url_for("admin_user_manage", user_id=user_id))
 
             cafe = db.session.get(Cafe, int(cafe_id))
-            if not cafe or not cafe.is_active:
+            if not cafe or not cafe_is_available(cafe):
                 flash("Cafe not found.", "danger")
                 return redirect(url_for("admin_user_manage", user_id=user_id))
 
@@ -2658,8 +3734,11 @@ def create_app():
                 mem = CafeMember(user_id=u.id, cafe_id=cafe.id, role=role, is_active=is_active)
                 db.session.add(mem)
             else:
-                mem.role = role
+                assign_membership_role(mem, role)
                 mem.is_active = is_active
+
+            if role == "owner":
+                assign_membership_role(mem, "owner")
 
             db.session.commit()
             flash("Membership saved.", "success")
@@ -2673,6 +3752,9 @@ def create_app():
             mem = db.session.get(CafeMember, int(member_id))
             if not mem or mem.user_id != u.id:
                 flash("Membership not found.", "danger")
+                return redirect(url_for("admin_user_manage", user_id=user_id))
+            if mem.role == "owner":
+                flash("Transfer the cafe owner role before removing this membership.", "danger")
                 return redirect(url_for("admin_user_manage", user_id=user_id))
             db.session.delete(mem)
             db.session.commit()
@@ -2696,6 +3778,10 @@ def seed_global_admin():
         username="admin",
         email="admin@local",
         password_hash=generate_password_hash("ChangeMe123!"),
+        pending_email=None,
+        email_verified_at=datetime.utcnow(),
+        requires_password_setup=False,
+        requires_email_verification=False,
         is_active=True,
         is_global_admin=True,
     )

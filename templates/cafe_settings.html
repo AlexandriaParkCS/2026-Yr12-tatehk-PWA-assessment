@@ -105,6 +105,24 @@
             <label class="form-label">Welcome Message</label>
             <input type="text" class="form-control" name="welcome_message" value="{{ settings.welcome_message }}">
           </div>
+
+          <hr class="my-4">
+          <h3 class="h6 mb-3">Public Cafe Page</h3>
+
+          <div class="mb-3">
+            <label class="form-label">Public Location</label>
+            <input type="text" class="form-control" name="public_location" value="{{ active_cafe.public_location or '' }}" placeholder="123 High Street, Melbourne">
+          </div>
+
+          <div class="mb-3">
+            <label class="form-label">Opening Hours</label>
+            <input type="text" class="form-control" name="public_opening_hours" value="{{ active_cafe.public_opening_hours or '' }}" placeholder="Mon-Fri 7am-4pm, Sat 8am-2pm">
+          </div>
+
+          <div>
+            <label class="form-label">Join Instructions</label>
+            <textarea class="form-control" name="public_join_instructions" rows="3" placeholder="Tell customers how to join and start using their card.">{{ active_cafe.public_join_instructions or '' }}</textarea>
+          </div>
         </div>
       </div>
     </div>

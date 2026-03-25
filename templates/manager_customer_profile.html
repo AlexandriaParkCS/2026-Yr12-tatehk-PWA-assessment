@@ -1,0 +1,129 @@
+{% extends "base.html" %}
+{% block content %}
+
+<div class="d-flex justify-content-between align-items-start flex-wrap gap-3 mb-4">
+  <div>
+    <h1 class="h4 mb-1">Customer Profile</h1>
+    <p class="text-muted mb-0">{{ customer.username }} at <strong>{{ active_cafe.name }}</strong></p>
+  </div>
+  <a class="btn btn-outline-primary btn-sm" href="{{ url_for('cafe_manager_customers', cafe_slug=active_cafe.slug) }}">Back to Customer Search</a>
+</div>
+
+<div class="row g-4">
+  <div class="col-xl-4">
+    <div class="card shadow-sm border-0 mb-4">
+      <div class="card-body p-4">
+        <h2 class="h5 mb-3">Account</h2>
+        <p class="mb-2"><strong>Email:</strong> {{ customer.email }}</p>
+        <p class="mb-2"><strong>Phone:</strong> {{ contact.phone_number if contact and contact.phone_number else 'Not provided' }}</p>
+        {% if progress %}
+          <p class="mb-2"><strong>Progress:</strong> {{ progress.current }} / {{ progress.required }} {{ progress.unit_label }}</p>
+          <p class="mb-0"><strong>Reward:</strong> {% if card and card.reward_available %}Ready{% else %}In progress{% endif %}</p>
+        {% else %}
+          <p class="mb-0 text-muted">No loyalty card at this cafe yet.</p>
+        {% endif %}
+      </div>
+    </div>
+
+    <div class="card shadow-sm border-0">
+      <div class="card-body p-4">
+        <h2 class="h5 mb-3">Moderation</h2>
+        {% if meta and meta.is_suspended %}
+          <div class="alert alert-dark py-2">
+            Suspended{% if meta.suspension_reason %}: <strong>{{ meta.suspension_reason }}</strong>{% endif %}
+          </div>
+        {% else %}
+          <div class="alert alert-success py-2">Customer is active at this cafe.</div>
+        {% endif %}
+
+        <form method="post" action="{{ url_for('manager_customer_moderation') }}" class="mb-3">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <input type="hidden" name="user_id" value="{{ customer.id }}">
+          {% if meta and meta.is_suspended %}
+            <input type="hidden" name="action" value="reactivate">
+            <button class="btn btn-success btn-sm" type="submit">Reactivate Customer</button>
+          {% else %}
+            <input type="hidden" name="action" value="suspend">
+            <div class="mb-3">
+              <label class="form-label">Reason</label>
+              <input class="form-control form-control-sm" name="reason" placeholder="fraud, abuse, chargeback">
+            </div>
+            <div class="mb-3">
+              <label class="form-label">Internal Note</label>
+              <textarea class="form-control form-control-sm" name="note" rows="3" placeholder="Why this customer is being suspended"></textarea>
+            </div>
+            <button class="btn btn-dark btn-sm" type="submit">Suspend Customer</button>
+          {% endif %}
+        </form>
+
+        {% if meta and meta.suspended_at %}
+          <div class="text-muted small">
+            Suspended {{ meta.suspended_at }}
+            {% if actor_map.get(meta.suspended_by_user_id) %}
+              by {{ actor_map[meta.suspended_by_user_id].username }}
+            {% endif %}
+          </div>
+          {% if meta.suspension_note %}
+            <div class="text-muted small mt-1">{{ meta.suspension_note }}</div>
+          {% endif %}
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+  <div class="col-xl-8">
+    <div class="card shadow-sm border-0 mb-4">
+      <div class="card-body p-4">
+        <h2 class="h5 mb-3">Notes and Flags</h2>
+        <form method="post" action="{{ url_for('manager_customer_note') }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <input type="hidden" name="user_id" value="{{ customer.id }}">
+          <input type="hidden" name="redirect_to" value="profile">
+          <div class="mb-3">
+            <label class="form-label">Customer Note</label>
+            <textarea class="form-control" name="note" rows="4" placeholder="Service notes, preferences, or issues">{{ meta.note if meta and meta.note else '' }}</textarea>
+          </div>
+          <div class="form-check mb-3">
+            <input class="form-check-input" type="checkbox" name="is_flagged" id="is_flagged" {% if meta and meta.is_flagged %}checked{% endif %}>
+            <label class="form-check-label" for="is_flagged">Flag this customer for manager/staff visibility</label>
+          </div>
+          <button class="btn btn-primary btn-sm" type="submit">Save Note</button>
+        </form>
+      </div>
+    </div>
+
+    <div class="card shadow-sm border-0">
+      <div class="card-body p-4">
+        <h2 class="h5 mb-3">Activity and Moderation History</h2>
+        {% if history %}
+          <div class="d-flex flex-column gap-3">
+            {% for item in history %}
+              <div class="rounded-4 border p-3">
+                <div class="d-flex justify-content-between align-items-start flex-wrap gap-2">
+                  <div>
+                    <div class="fw-semibold">{{ item.action.replace('_', ' ')|title }}</div>
+                    <div class="text-muted small">
+                      {% if item.actor_user_id and actor_map.get(item.actor_user_id) %}
+                        by {{ actor_map[item.actor_user_id].username }}
+                      {% else %}
+                        System
+                      {% endif %}
+                    </div>
+                  </div>
+                  <div class="text-muted small">{{ item.created_at }}</div>
+                </div>
+                <div class="mt-2">
+                  {{ item.note if item.note else 'No extra details recorded.' }}
+                </div>
+              </div>
+            {% endfor %}
+          </div>
+        {% else %}
+          <p class="text-muted mb-0">No activity yet for this customer at this cafe.</p>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+
+{% endblock %}

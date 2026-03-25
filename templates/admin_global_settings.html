@@ -136,4 +136,79 @@
   </div>
 </form>
 
+<div class="row g-4 mt-1">
+  <div class="col-12 col-lg-5">
+    <div class="card border-0 shadow-sm">
+      <div class="card-body p-4">
+        <h2 class="h5 mb-3">Block Email or Phone</h2>
+        <p class="text-muted">Blocked contacts cannot register, be manually created, receive invites, or sign in.</p>
+
+        <form method="post" action="{{ url_for('admin_add_blocked_contact') }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+
+          <div class="mb-3">
+            <label class="form-label">Type</label>
+            <select class="form-select" name="block_type" required>
+              <option value="email">Email</option>
+              <option value="phone">Phone Number</option>
+            </select>
+          </div>
+
+          <div class="mb-3">
+            <label class="form-label">Value</label>
+            <input class="form-control" name="raw_value" placeholder="name@example.com or 0400 000 000" required>
+          </div>
+
+          <div class="mb-3">
+            <label class="form-label">Reason</label>
+            <input class="form-control" name="note" placeholder="Optional note">
+          </div>
+
+          <button class="btn btn-outline-danger" type="submit">Add Block</button>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-12 col-lg-7">
+    <div class="card border-0 shadow-sm">
+      <div class="card-body p-4">
+        <h2 class="h5 mb-3">Blocked Contacts</h2>
+        {% if blocked_contacts %}
+          <div class="table-responsive">
+            <table class="table table-sm align-middle mb-0">
+              <thead>
+                <tr>
+                  <th>Type</th>
+                  <th>Value</th>
+                  <th>Reason</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for blocked in blocked_contacts %}
+                  <tr>
+                    <td><span class="badge bg-dark">{{ blocked.block_type }}</span></td>
+                    <td>{{ blocked.raw_value }}</td>
+                    <td>{{ blocked.note or 'No note' }}</td>
+                    <td class="text-end">
+                      <form method="post" action="{{ url_for('admin_delete_blocked_contact') }}" class="m-0">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                        <input type="hidden" name="blocked_id" value="{{ blocked.id }}">
+                        <button class="btn btn-sm btn-outline-secondary" type="submit">Remove</button>
+                      </form>
+                    </td>
+                  </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        {% else %}
+          <p class="text-muted mb-0">No blocked emails or phone numbers.</p>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+
 {% endblock %}

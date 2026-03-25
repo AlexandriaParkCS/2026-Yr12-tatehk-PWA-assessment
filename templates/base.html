@@ -412,7 +412,7 @@ Cafe rewards and team tools
 {% if me_is_admin %}
 Global admin
 {% elif me_membership %}
-{{ me_membership.role|capitalize }} at {{ active_cafe.name if active_cafe else 'selected cafe' }}
+{{ 'Cafe Owner' if me_membership.role == 'owner' else me_membership.role|capitalize }} at {{ active_cafe.name if active_cafe else 'selected cafe' }}
 {% elif active_cafe %}
 Customer at {{ active_cafe.name }}
 {% else %}
@@ -425,24 +425,24 @@ Signed in
 <div class="nav-group-label">Navigate</div>
 <div class="nav-menu-group">
 {% if active_cafe %}
-<a class="nav-chip {% if request.endpoint in ['card', 'card_history', 'open_card'] %}active{% endif %}"
-href="{{ url_for('open_card', cafe_id=active_cafe.id) }}"
+<a class="nav-chip {% if request.endpoint in ['card', 'card_history', 'open_card', 'cafe_card', 'cafe_history'] %}active{% endif %}"
+href="{{ url_for('cafe_card', cafe_slug=active_cafe.slug) }}"
 aria-current="{% if request.endpoint in ['card', 'card_history'] %}page{% endif %}">
 My Card
 </a>
 {% endif %}
 
-{% if active_cafe and (me_is_admin or (me_membership and me_membership.role in ['staff','manager'])) %}
-<a class="nav-chip {% if request.endpoint == 'staff_home' %}active{% endif %}"
-href="{{ url_for('staff_home') }}"
-aria-current="{% if request.endpoint == 'staff_home' %}page{% endif %}">
+{% if active_cafe and (me_is_admin or (me_membership and me_membership.role in ['staff','manager','owner'])) %}
+<a class="nav-chip {% if request.endpoint in ['staff_home', 'cafe_staff'] %}active{% endif %}"
+href="{{ url_for('cafe_staff', cafe_slug=active_cafe.slug) }}"
+aria-current="{% if request.endpoint in ['staff_home', 'cafe_staff'] %}page{% endif %}">
 Staff Workspace
 </a>
 {% endif %}
 
-{% if active_cafe and (me_is_admin or (me_membership and me_membership.role == 'manager')) %}
+{% if active_cafe and (me_is_admin or (me_membership and me_membership.role in ['manager', 'owner'])) %}
 <div class="dropdown">
-<button class="nav-chip nav-dropdown-toggle dropdown-toggle {% if request.endpoint in ['manager_dashboard', 'manager_staff', 'cafe_settings', 'manager_audit', 'manager_customers'] %}active{% endif %}"
+<button class="nav-chip nav-dropdown-toggle dropdown-toggle {% if request.endpoint in ['manager_dashboard', 'manager_staff', 'cafe_settings', 'manager_audit', 'manager_customers', 'cafe_manager_dashboard', 'cafe_manager_staff', 'cafe_manager_audit', 'cafe_manager_customers', 'cafe_slug_settings'] %}active{% endif %}"
 type="button"
 data-bs-toggle="dropdown"
 aria-expanded="false">
@@ -450,11 +450,11 @@ Manager Tools
 </button>
 <div class="dropdown-menu dropdown-menu-end">
 <div class="nav-group-label px-2">Manager</div>
-<a class="dropdown-item {% if request.endpoint == 'manager_dashboard' %}active{% endif %}" href="{{ url_for('manager_dashboard') }}">Dashboard</a>
-<a class="dropdown-item {% if request.endpoint == 'manager_staff' %}active{% endif %}" href="{{ url_for('manager_staff') }}">Manage Staff</a>
-<a class="dropdown-item {% if request.endpoint == 'manager_audit' %}active{% endif %}" href="{{ url_for('manager_audit') }}">Audit Log</a>
-<a class="dropdown-item {% if request.endpoint == 'manager_customers' %}active{% endif %}" href="{{ url_for('manager_customers') }}">Customer Search</a>
-<a class="dropdown-item {% if request.endpoint == 'cafe_settings' %}active{% endif %}" href="{{ url_for('cafe_settings') }}">Cafe Settings</a>
+<a class="dropdown-item {% if request.endpoint in ['manager_dashboard', 'cafe_manager_dashboard'] %}active{% endif %}" href="{{ url_for('cafe_manager_dashboard', cafe_slug=active_cafe.slug) }}">Dashboard</a>
+<a class="dropdown-item {% if request.endpoint in ['manager_staff', 'cafe_manager_staff'] %}active{% endif %}" href="{{ url_for('cafe_manager_staff', cafe_slug=active_cafe.slug) }}">Manage Staff</a>
+<a class="dropdown-item {% if request.endpoint in ['manager_audit', 'cafe_manager_audit'] %}active{% endif %}" href="{{ url_for('cafe_manager_audit', cafe_slug=active_cafe.slug) }}">Audit Log</a>
+<a class="dropdown-item {% if request.endpoint in ['manager_customers', 'cafe_manager_customers'] %}active{% endif %}" href="{{ url_for('cafe_manager_customers', cafe_slug=active_cafe.slug) }}">Customer Search</a>
+<a class="dropdown-item {% if request.endpoint in ['cafe_settings', 'cafe_slug_settings'] %}active{% endif %}" href="{{ url_for('cafe_slug_settings', cafe_slug=active_cafe.slug) }}">Cafe Settings</a>
 </div>
 </div>
 {% endif %}

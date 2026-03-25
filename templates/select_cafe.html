@@ -23,23 +23,13 @@
             No cafes available for your account yet.
           </div>
         {% else %}
-          <form method="post" action="{{ url_for('select_cafe_post') }}">
-            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-
-            <div class="mb-3">
-              <label class="form-label">Cafe</label>
-              <select class="form-select" name="cafe_id" required>
-                <option value="" selected disabled>Choose…</option>
-                {% for c in cafes %}
-                  <option value="{{ c.id }}">
-                    {{ c.name }} (/{{ c.slug }})
-                  </option>
-                {% endfor %}
-              </select>
-            </div>
-
-            <button class="btn btn-primary w-100" type="submit">Continue</button>
-          </form>
+          <div class="d-grid gap-2">
+            {% for c in cafes %}
+              <a class="btn btn-outline-primary text-start" href="{{ url_for('cafe_home', cafe_slug=c.slug) }}">
+                {{ c.name }} (/{{ c.slug }})
+              </a>
+            {% endfor %}
+          </div>
         {% endif %}
 
         {% if me_is_admin %}

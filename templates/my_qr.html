@@ -57,13 +57,9 @@
                     </div>
                   </div>
 
-                  <form method="post" action="{{ url_for('select_cafe_post') }}" class="m-0">
-                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-                    <input type="hidden" name="cafe_id" value="{{ c.id }}">
-                    <button class="btn btn-primary px-4" type="submit">
-                      View Card
-                    </button>
-                  </form>
+                  <a class="btn btn-primary px-4" href="{{ url_for('cafe_card', cafe_slug=c.slug) }}">
+                    View Card
+                  </a>
                 </div>
               </div>
             {% endfor %}

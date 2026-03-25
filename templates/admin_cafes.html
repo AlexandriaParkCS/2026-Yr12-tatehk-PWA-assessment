@@ -4,68 +4,154 @@
 <div class="d-flex justify-content-between align-items-start flex-wrap gap-3 mb-4">
   <div>
     <h1 class="h4 mb-1">Manage Cafes</h1>
-    <p class="text-muted mb-0">Edit, archive, and reopen cafes across the whole platform.</p>
+    <p class="text-muted mb-0">Edit cafe details, control cafe status, and transfer cafe ownership.</p>
   </div>
   <a class="btn btn-primary btn-sm" href="{{ url_for('admin_create_cafe') }}">Create Cafe</a>
 </div>
 
-<form method="get" class="mb-3">
+<form method="get" class="mb-4">
   <div class="input-group">
     <input class="form-control" name="q" value="{{ q }}" placeholder="Search by cafe name or slug">
     <button class="btn btn-outline-secondary" type="submit">Search</button>
   </div>
 </form>
 
-<div class="card shadow-sm border-0">
-  <div class="card-body p-0">
-    {% if rows %}
-      <div class="table-responsive">
-        <table class="table table-sm align-middle mb-0">
-          <thead>
-            <tr>
-              <th>Cafe</th>
-              <th>Managers</th>
-              <th>Members</th>
-              <th>Customers</th>
-              <th>Status</th>
-              <th style="width: 340px;">Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {% for cafe, manager_count, member_count, customer_count in rows %}
-              <tr>
-                <td><strong>{{ cafe.name }}</strong><br><span class="text-muted">/{{ cafe.slug }}</span></td>
-                <td>{{ manager_count }}</td>
-                <td>{{ member_count }}</td>
-                <td>{{ customer_count }}</td>
-                <td>{% if cafe.is_active %}<span class="badge bg-success">Active</span>{% else %}<span class="badge bg-secondary">Archived</span>{% endif %}</td>
-                <td>
-                  <div class="d-flex flex-column gap-2">
-                    <form method="post" action="{{ url_for('admin_cafe_update', cafe_id=cafe.id) }}" class="d-flex gap-2">
-                      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-                      <input type="hidden" name="action" value="save">
-                      <input class="form-control form-control-sm" name="name" value="{{ cafe.name }}" required>
-                      <input class="form-control form-control-sm" name="slug" value="{{ cafe.slug }}" required>
-                      <button class="btn btn-outline-primary btn-sm" type="submit">Save</button>
-                    </form>
+{% if rows %}
+  <div class="d-flex flex-column gap-3">
+    {% for cafe, manager_count, member_count, customer_count, owner_user, manager_options in rows %}
+      <div class="card shadow-sm border-0">
+        <div class="card-body p-4">
+          <div class="d-flex justify-content-between align-items-start flex-wrap gap-3 mb-3">
+            <div>
+              <h2 class="h5 mb-1">{{ cafe.name }}</h2>
+              <div class="text-muted small">/{{ cafe.slug }}</div>
+            </div>
+            <div class="d-flex flex-wrap gap-2">
+              {% if cafe.is_archived %}
+                <span class="badge bg-secondary">Archived</span>
+              {% elif cafe.is_active %}
+                <span class="badge bg-success">Active</span>
+              {% else %}
+                <span class="badge bg-warning text-dark">Disabled</span>
+              {% endif %}
+              {% if owner_user %}
+                <span class="badge text-bg-light border">Owner: {{ owner_user.username }}</span>
+              {% else %}
+                <span class="badge text-bg-light border">No owner assigned</span>
+              {% endif %}
+            </div>
+          </div>
+
+          <div class="row g-3 mb-3">
+            <div class="col-6 col-md-3">
+              <div class="rounded-4 border p-3 bg-body-tertiary h-100">
+                <div class="text-muted small">Managers</div>
+                <div class="fs-5 fw-semibold">{{ manager_count }}</div>
+              </div>
+            </div>
+            <div class="col-6 col-md-3">
+              <div class="rounded-4 border p-3 bg-body-tertiary h-100">
+                <div class="text-muted small">Members</div>
+                <div class="fs-5 fw-semibold">{{ member_count }}</div>
+              </div>
+            </div>
+            <div class="col-6 col-md-3">
+              <div class="rounded-4 border p-3 bg-body-tertiary h-100">
+                <div class="text-muted small">Customers</div>
+                <div class="fs-5 fw-semibold">{{ customer_count }}</div>
+              </div>
+            </div>
+            <div class="col-6 col-md-3">
+              <div class="rounded-4 border p-3 bg-body-tertiary h-100">
+                <div class="text-muted small">Open Link</div>
+                <a class="small fw-semibold" href="{{ url_for('cafe_home', cafe_slug=cafe.slug) }}">/{{ cafe.slug }}/</a>
+              </div>
+            </div>
+          </div>
+
+          <div class="row g-3">
+            <div class="col-xl-5">
+              <form method="post" action="{{ url_for('admin_cafe_update', cafe_id=cafe.id) }}" class="rounded-4 border p-3 h-100">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                <input type="hidden" name="action" value="save">
+                <h3 class="h6 mb-3">Cafe Details</h3>
+                <div class="mb-3">
+                  <label class="form-label small">Name</label>
+                  <input class="form-control form-control-sm" name="name" value="{{ cafe.name }}" required>
+                </div>
+                <div class="mb-3">
+                  <label class="form-label small">Slug</label>
+                  <input class="form-control form-control-sm" name="slug" value="{{ cafe.slug }}" required>
+                </div>
+                <button class="btn btn-outline-primary btn-sm" type="submit">Save Details</button>
+              </form>
+            </div>
+
+            <div class="col-xl-4">
+              <form method="post" action="{{ url_for('admin_cafe_update', cafe_id=cafe.id) }}" class="rounded-4 border p-3 h-100">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                <input type="hidden" name="action" value="set_owner">
+                <h3 class="h6 mb-3">Cafe Owner</h3>
+                <div class="mb-3">
+                  <label class="form-label small">Transfer owner to</label>
+                  <select class="form-select form-select-sm" name="owner_member_id" {% if not manager_options %}disabled{% endif %}>
+                    {% for member, user in manager_options %}
+                      <option value="{{ member.id }}" {% if member.role == 'owner' %}selected{% endif %}>{{ user.username }} ({{ member.role }})</option>
+                    {% endfor %}
+                  </select>
+                </div>
+                {% if manager_options %}
+                  <button class="btn btn-outline-dark btn-sm" type="submit">Update Owner</button>
+                {% else %}
+                  <p class="text-muted small mb-0">Add a manager first before assigning an owner.</p>
+                {% endif %}
+              </form>
+            </div>
+
+            <div class="col-xl-3">
+              <div class="rounded-4 border p-3 h-100">
+                <h3 class="h6 mb-3">Cafe Status</h3>
+                <div class="d-flex flex-column gap-2">
+                  {% if cafe.is_archived %}
                     <form method="post" action="{{ url_for('admin_cafe_update', cafe_id=cafe.id) }}">
                       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-                      <input type="hidden" name="action" value="toggle_active">
-                      <button class="btn btn-sm {% if cafe.is_active %}btn-outline-danger{% else %}btn-outline-success{% endif %}" type="submit">
-                        {% if cafe.is_active %}Archive{% else %}Reopen{% endif %}
-                      </button>
+                      <input type="hidden" name="action" value="reopen">
+                      <button class="btn btn-success btn-sm w-100" type="submit">Reopen Cafe</button>
                     </form>
-                  </div>
-                </td>
-              </tr>
-            {% endfor %}
-          </tbody>
-        </table>
+                  {% else %}
+                    {% if cafe.is_active %}
+                      <form method="post" action="{{ url_for('admin_cafe_update', cafe_id=cafe.id) }}">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                        <input type="hidden" name="action" value="disable">
+                        <button class="btn btn-outline-warning btn-sm w-100" type="submit">Disable Cafe</button>
+                      </form>
+                    {% else %}
+                      <form method="post" action="{{ url_for('admin_cafe_update', cafe_id=cafe.id) }}">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                        <input type="hidden" name="action" value="reopen">
+                        <button class="btn btn-success btn-sm w-100" type="submit">Reopen Cafe</button>
+                      </form>
+                    {% endif %}
+                    <form method="post" action="{{ url_for('admin_cafe_update', cafe_id=cafe.id) }}">
+                      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                      <input type="hidden" name="action" value="archive">
+                      <button class="btn btn-outline-danger btn-sm w-100" type="submit">Archive Cafe</button>
+                    </form>
+                  {% endif %}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
-    {% else %}
-      <div class="p-4 text-muted">No cafes matched your search.</div>
-    {% endif %}
+    {% endfor %}
   </div>
-</div>
+{% else %}
+  <div class="card shadow-sm border-0">
+    <div class="card-body p-4 text-muted">
+      No cafes matched your search.
+    </div>
+  </div>
+{% endif %}
 
 {% endblock %}
