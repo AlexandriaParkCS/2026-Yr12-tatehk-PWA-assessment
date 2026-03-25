@@ -44,9 +44,14 @@
 
         {% if me_is_admin %}
           <hr class="my-4">
-          <a class="btn btn-outline-warning w-100" href="{{ url_for('admin_create_cafe') }}">
-            Create a New Cafe (Admin)
-          </a>
+          <div class="d-grid gap-2">
+            <a class="btn btn-outline-warning w-100" href="{{ url_for('admin_create_cafe') }}">
+              Create a New Cafe
+            </a>
+            <a class="btn btn-outline-secondary w-100" href="{{ url_for('admin_cafes') }}">
+              Manage Existing Cafes
+            </a>
+          </div>
         {% endif %}
 
       </div>

@@ -8,6 +8,11 @@
   </p>
 </div>
 
+<div class="d-flex flex-wrap gap-2 mb-4">
+  <a class="btn btn-outline-primary btn-sm" href="{{ url_for('manager_audit') }}">Audit Log</a>
+  <a class="btn btn-outline-primary btn-sm" href="{{ url_for('manager_customers') }}">Customer Search</a>
+</div>
+
 <div class="row g-4">
 
   <!-- Add Existing Staff -->
@@ -237,6 +242,60 @@
 
     {% endif %}
 
+  </div>
+</div>
+
+<div class="card shadow-sm border-0 mt-4" style="border-radius:20px;">
+  <div class="card-body">
+    <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+      <h5 class="mb-0">Invite History</h5>
+      <form method="get" class="d-flex gap-2">
+        <select class="form-select form-select-sm" name="invite_status">
+          <option value="active" {% if invite_status == 'active' %}selected{% endif %}>Active</option>
+          <option value="accepted" {% if invite_status == 'accepted' %}selected{% endif %}>Accepted</option>
+          <option value="revoked" {% if invite_status == 'revoked' %}selected{% endif %}>Revoked</option>
+          <option value="expired" {% if invite_status == 'expired' %}selected{% endif %}>Expired</option>
+        </select>
+        <button class="btn btn-sm btn-outline-primary" type="submit">Filter</button>
+      </form>
+    </div>
+
+    {% if invite_history %}
+      <div class="table-responsive">
+        <table class="table table-sm align-middle mb-0">
+          <thead>
+            <tr>
+              <th>Email</th>
+              <th>Role</th>
+              <th>Created</th>
+              <th>Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for invite in invite_history %}
+              <tr>
+                <td>{{ invite.email }}</td>
+                <td>{{ invite.role }}</td>
+                <td>{{ invite.created_at }}</td>
+                <td>
+                  {% if invite.accepted_at %}
+                    <span class="badge bg-success">Accepted</span>
+                  {% elif not invite.is_active and not invite.accepted_at %}
+                    <span class="badge bg-secondary">Revoked</span>
+                  {% elif invite.expires_at < current_time %}
+                    <span class="badge bg-warning text-dark">Expired</span>
+                  {% else %}
+                    <span class="badge bg-primary">Active</span>
+                  {% endif %}
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% else %}
+      <p class="text-muted mb-0">No invites in this view.</p>
+    {% endif %}
   </div>
 </div>
 

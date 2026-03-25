@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% block content %}
+
+<div class="d-flex justify-content-between align-items-start flex-wrap gap-3 mb-4">
+  <div>
+    <h1 class="h4 mb-1">Card History</h1>
+    <p class="text-muted mb-0">Recent scans, rewards, and loyalty changes for <strong>{{ active_cafe.name }}</strong>.</p>
+  </div>
+  <a class="btn btn-outline-primary btn-sm" href="{{ url_for('card') }}">Back to Card</a>
+</div>
+
+<div class="card shadow-sm border-0">
+  <div class="card-body p-0">
+    {% if history %}
+      <div class="table-responsive">
+        <table class="table table-sm align-middle mb-0">
+          <thead>
+            <tr>
+              <th>When</th>
+              <th>Action</th>
+              <th>Details</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for item in history %}
+              <tr>
+                <td>{{ item.created_at }}</td>
+                <td>{{ item.action.replace('_', ' ').title() }}</td>
+                <td>{{ item.note or 'No details' }}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% else %}
+      <div class="p-4 text-muted">No activity yet for this cafe.</div>
+    {% endif %}
+  </div>
+</div>
+
+{% endblock %}

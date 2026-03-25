@@ -81,6 +81,54 @@
         </div>
       </div>
     </div>
+
+    <div class="col-12">
+      <div class="card border-0 shadow-sm">
+        <div class="card-body p-4">
+          <h2 class="h5 mb-3">Email Delivery</h2>
+          <p class="text-muted">
+            Used for invite emails and password reset emails.
+          </p>
+
+          <div class="row g-3">
+            <div class="col-md-4">
+              <label class="form-label">SMTP Host</label>
+              <input class="form-control" name="smtp_host" value="{{ email_settings.smtp_host or '' }}" placeholder="smtp.example.com">
+            </div>
+            <div class="col-md-2">
+              <label class="form-label">Port</label>
+              <input type="number" class="form-control" name="smtp_port" min="1" value="{{ email_settings.smtp_port }}">
+            </div>
+            <div class="col-md-3">
+              <label class="form-label">SMTP Username</label>
+              <input class="form-control" name="smtp_username" value="{{ email_settings.smtp_username or '' }}">
+            </div>
+            <div class="col-md-3">
+              <label class="form-label">SMTP Password</label>
+              <input type="password" class="form-control" name="smtp_password" placeholder="Leave blank to keep existing">
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">From Email</label>
+              <input type="email" class="form-control" name="from_email" value="{{ email_settings.from_email or '' }}" placeholder="noreply@example.com">
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">From Name</label>
+              <input class="form-control" name="from_name" value="{{ email_settings.from_name }}">
+            </div>
+          </div>
+
+          <div class="form-check mt-3">
+            <input class="form-check-input" type="checkbox" name="email_is_enabled" id="email_is_enabled" {% if email_settings.is_enabled %}checked{% endif %}>
+            <label class="form-check-label" for="email_is_enabled">Enable outgoing email</label>
+          </div>
+
+          <div class="form-check mt-2">
+            <input class="form-check-input" type="checkbox" name="email_use_tls" id="email_use_tls" {% if email_settings.use_tls %}checked{% endif %}>
+            <label class="form-check-label" for="email_use_tls">Use STARTTLS</label>
+          </div>
+        </div>
+      </div>
+    </div>
   </div>
 
   <div class="mt-4">

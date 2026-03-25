@@ -1,0 +1,71 @@
+{% extends "base.html" %}
+{% block content %}
+
+<div class="d-flex justify-content-between align-items-start flex-wrap gap-3 mb-4">
+  <div>
+    <h1 class="h4 mb-1">Manage Cafes</h1>
+    <p class="text-muted mb-0">Edit, archive, and reopen cafes across the whole platform.</p>
+  </div>
+  <a class="btn btn-primary btn-sm" href="{{ url_for('admin_create_cafe') }}">Create Cafe</a>
+</div>
+
+<form method="get" class="mb-3">
+  <div class="input-group">
+    <input class="form-control" name="q" value="{{ q }}" placeholder="Search by cafe name or slug">
+    <button class="btn btn-outline-secondary" type="submit">Search</button>
+  </div>
+</form>
+
+<div class="card shadow-sm border-0">
+  <div class="card-body p-0">
+    {% if rows %}
+      <div class="table-responsive">
+        <table class="table table-sm align-middle mb-0">
+          <thead>
+            <tr>
+              <th>Cafe</th>
+              <th>Managers</th>
+              <th>Members</th>
+              <th>Customers</th>
+              <th>Status</th>
+              <th style="width: 340px;">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for cafe, manager_count, member_count, customer_count in rows %}
+              <tr>
+                <td><strong>{{ cafe.name }}</strong><br><span class="text-muted">/{{ cafe.slug }}</span></td>
+                <td>{{ manager_count }}</td>
+                <td>{{ member_count }}</td>
+                <td>{{ customer_count }}</td>
+                <td>{% if cafe.is_active %}<span class="badge bg-success">Active</span>{% else %}<span class="badge bg-secondary">Archived</span>{% endif %}</td>
+                <td>
+                  <div class="d-flex flex-column gap-2">
+                    <form method="post" action="{{ url_for('admin_cafe_update', cafe_id=cafe.id) }}" class="d-flex gap-2">
+                      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                      <input type="hidden" name="action" value="save">
+                      <input class="form-control form-control-sm" name="name" value="{{ cafe.name }}" required>
+                      <input class="form-control form-control-sm" name="slug" value="{{ cafe.slug }}" required>
+                      <button class="btn btn-outline-primary btn-sm" type="submit">Save</button>
+                    </form>
+                    <form method="post" action="{{ url_for('admin_cafe_update', cafe_id=cafe.id) }}">
+                      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                      <input type="hidden" name="action" value="toggle_active">
+                      <button class="btn btn-sm {% if cafe.is_active %}btn-outline-danger{% else %}btn-outline-success{% endif %}" type="submit">
+                        {% if cafe.is_active %}Archive{% else %}Reopen{% endif %}
+                      </button>
+                    </form>
+                  </div>
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% else %}
+      <div class="p-4 text-muted">No cafes matched your search.</div>
+    {% endif %}
+  </div>
+</div>
+
+{% endblock %}

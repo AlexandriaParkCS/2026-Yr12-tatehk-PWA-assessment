@@ -196,6 +196,16 @@
           {% endif %}
         </div>
 
+        <div class="mt-3 small" style="opacity: 0.92;">
+          {% if mode == "stamps" %}
+            Collect one stamp per eligible purchase. Reach {{ required_value }} stamps to unlock your reward.
+          {% elif mode == "points" %}
+            Each eligible purchase adds {{ settings.points_per_purchase }} points. Reach {{ required_value }} points to unlock {{ settings.reward_name }}.
+          {% else %}
+            Your next tier unlocks as soon as your points reach the required threshold shown above.
+          {% endif %}
+        </div>
+
       </div>
     </div>
 
@@ -218,6 +228,10 @@
 
         <div class="text-muted" style="font-size: 0.9rem;">
           Account: <strong>{{ me.username }}</strong>
+        </div>
+
+        <div class="mt-3">
+          <a class="btn btn-outline-primary btn-sm" href="{{ url_for('card_history') }}">View Card History</a>
         </div>
 
       </div>

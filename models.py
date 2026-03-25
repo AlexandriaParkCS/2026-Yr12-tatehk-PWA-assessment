@@ -26,6 +26,40 @@ class GlobalSettings(db.Model):
     updated_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
+class EmailSettings(db.Model):
+    __tablename__ = "email_settings"
+
+    id = db.Column(db.Integer, primary_key=True, default=1)
+
+    is_enabled = db.Column(db.Boolean, nullable=False, default=False)
+    smtp_host = db.Column(db.String(255), nullable=True)
+    smtp_port = db.Column(db.Integer, nullable=False, default=587)
+    smtp_username = db.Column(db.String(255), nullable=True)
+    smtp_password = db.Column(db.String(255), nullable=True)
+    from_email = db.Column(db.String(255), nullable=True)
+    from_name = db.Column(db.String(120), nullable=False, default="Coffee Loyalty")
+    use_tls = db.Column(db.Boolean, nullable=False, default=True)
+
+    updated_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class CafeCustomerNote(db.Model):
+    __tablename__ = "cafe_customer_notes"
+
+    id = db.Column(db.Integer, primary_key=True)
+    cafe_id = db.Column(db.Integer, db.ForeignKey("cafes.id"), nullable=False, index=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False, index=True)
+
+    is_flagged = db.Column(db.Boolean, nullable=False, default=False)
+    note = db.Column(db.String(500), nullable=True)
+    updated_by_user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=True, index=True)
+    updated_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    __table_args__ = (
+        db.UniqueConstraint("cafe_id", "user_id", name="uq_cafe_customer_note"),
+    )
+
+
 class Cafe(db.Model):
     __tablename__ = "cafes"
 
