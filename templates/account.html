@@ -21,6 +21,10 @@
             <label class="form-label">Email</label>
             <input class="form-control" name="email" type="email" value="{{ me.email }}" required>
           </div>
+          <div class="mb-3">
+            <label class="form-label">Phone Number</label>
+            <input class="form-control" name="phone_number" type="tel" value="{{ contact.phone_number if contact else '' }}">
+          </div>
           <button class="btn btn-primary" type="submit">Save Profile</button>
         </form>
       </div>
@@ -56,13 +60,22 @@
   <div class="card-body p-4">
     <h2 class="h5 mb-3">Your Cafes</h2>
     {% if cafes %}
-      <div class="d-flex flex-wrap gap-2">
+      <div class="d-flex flex-column gap-3">
         {% for cafe in cafes %}
-          <form method="post" action="{{ url_for('select_cafe_post') }}" class="m-0">
-            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-            <input type="hidden" name="cafe_id" value="{{ cafe.id }}">
-            <button class="btn btn-outline-primary btn-sm" type="submit">{{ cafe.name }}</button>
-          </form>
+          <div class="d-flex flex-wrap align-items-center justify-content-between gap-2 rounded-4 border p-3 bg-body-tertiary">
+            <div>
+              <div class="fw-semibold">{{ cafe.name }}</div>
+              <div class="text-muted small">Quick access to your workspace or your personal coffee card.</div>
+            </div>
+            <div class="d-flex flex-wrap gap-2">
+              <a class="btn btn-outline-primary btn-sm" href="{{ url_for('open_card', cafe_id=cafe.id) }}">My Card</a>
+              <form method="post" action="{{ url_for('select_cafe_post') }}" class="m-0">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                <input type="hidden" name="cafe_id" value="{{ cafe.id }}">
+                <button class="btn btn-primary btn-sm" type="submit">Open Cafe</button>
+              </form>
+            </div>
+          </div>
         {% endfor %}
       </div>
     {% else %}

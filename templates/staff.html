@@ -34,8 +34,31 @@
       <div class="card shadow-sm border-0 mt-4">
         <div class="card-body p-4">
           <h2 class="h5 mb-3">Search Customer</h2>
-          <input type="text" id="userSearch" class="form-control" placeholder="Search by username or email">
+          <input type="text" id="userSearch" class="form-control" placeholder="Search by username, email, or phone number">
           <div id="searchResults" class="mt-3"></div>
+        </div>
+      </div>
+
+      <div class="card shadow-sm border-0 mt-4">
+        <div class="card-body p-4">
+          <h2 class="h5 mb-1">Don't Have an Account?</h2>
+          <p class="text-muted small mb-3">Create a customer account and add them to this cafe immediately.</p>
+          <form method="post" action="{{ url_for('staff_create_user') }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <div class="mb-2">
+              <input class="form-control" name="username" placeholder="Username" required>
+            </div>
+            <div class="mb-2">
+              <input class="form-control" name="email" type="email" placeholder="Email" required>
+            </div>
+            <div class="mb-2">
+              <input class="form-control" name="phone_number" type="tel" placeholder="Phone number">
+            </div>
+            <div class="mb-3">
+              <input class="form-control" name="password" type="password" minlength="8" placeholder="Temporary password" required>
+            </div>
+            <button class="btn btn-outline-primary btn-sm" type="submit">Create Customer Account</button>
+          </form>
         </div>
       </div>
 
@@ -118,6 +141,7 @@ function renderPreview(user) {
       <div>
         <div class="h5 mb-1">${user.username}</div>
         <div class="text-muted small">${user.email}</div>
+        ${user.phone_number ? `<div class="text-muted small">${user.phone_number}</div>` : ""}
       </div>
       ${user.is_flagged ? '<span class="customer-flag bg-danger-subtle text-danger-emphasis">Flagged</span>' : '<span class="customer-flag bg-light text-muted">Clear</span>'}
     </div>
@@ -141,6 +165,7 @@ async function lookupToken(token) {
   renderPreview({
     username: data.user.username,
     email: data.user.email,
+    phone_number: data.user.phone_number,
     qr_token: token,
     current: data.card.current,
     required: data.card.required,
@@ -211,10 +236,11 @@ searchInput.addEventListener("input", async () => {
     const div = document.createElement("button");
     div.type = "button";
     div.className = "btn btn-outline-secondary w-100 text-start mb-2";
-    div.innerHTML = `<strong>${u.username}</strong><br><small>${u.email}</small>${u.is_flagged ? '<br><span class="badge bg-danger mt-1">Flagged</span>' : ''}`;
+    div.innerHTML = `<strong>${u.username}</strong><br><small>${u.email}</small>${u.phone_number ? `<br><small>${u.phone_number}</small>` : ''}${u.is_flagged ? '<br><span class="badge bg-danger mt-1">Flagged</span>' : ''}`;
     div.onclick = () => renderPreview({
       username: u.username,
       email: u.email,
+      phone_number: u.phone_number,
       qr_token: u.qr_token,
       current: u.current,
       required: u.required,

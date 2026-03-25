@@ -60,6 +60,16 @@ class CafeCustomerNote(db.Model):
     )
 
 
+class UserContact(db.Model):
+    __tablename__ = "user_contacts"
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False, unique=True, index=True)
+    phone_number = db.Column(db.String(40), nullable=True)
+    phone_search = db.Column(db.String(25), nullable=True, unique=True, index=True)
+    updated_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
 class Cafe(db.Model):
     __tablename__ = "cafes"
 

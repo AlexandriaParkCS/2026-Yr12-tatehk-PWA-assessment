@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+<body style="margin:0; padding:0; background:#f4efe7; font-family:Georgia, 'Times New Roman', serif; color:#2d2218;">
+  <div style="padding:32px 16px;">
+    <div style="max-width:620px; margin:0 auto; background:#fffdf9; border:1px solid #e4d7c5; border-radius:20px; overflow:hidden; box-shadow:0 12px 30px rgba(69,44,19,0.08);">
+      <div style="background:linear-gradient(135deg, #264653, #2a9d8f); color:#f4fffd; padding:28px 32px;">
+        <div style="font-size:12px; letter-spacing:0.18em; text-transform:uppercase; opacity:0.88;">{{ site_name }}</div>
+        <h1 style="margin:10px 0 0; font-size:30px; line-height:1.15;">You're Invited</h1>
+      </div>
+
+      <div style="padding:32px;">
+        <p style="margin:0 0 16px; font-size:16px; line-height:1.7;">
+          You have been invited to join <strong>{{ cafe_name }}</strong> as <strong>{{ role }}</strong>.
+        </p>
+        <p style="margin:0 0 16px; font-size:16px; line-height:1.7;">
+          This invite was sent to <strong>{{ invite_email }}</strong>.
+        </p>
+
+        <div style="margin:28px 0;">
+          <a href="{{ invite_url }}" style="display:inline-block; background:#264653; color:#f4fffd; text-decoration:none; padding:14px 22px; border-radius:999px; font-weight:700; letter-spacing:0.01em;">
+            Accept Invite
+          </a>
+        </div>
+
+        <p style="margin:0 0 16px; font-size:15px; line-height:1.7;">
+          This invite expires on <strong>{{ expires_at }} UTC</strong>.
+        </p>
+        <p style="margin:0 0 18px; font-size:15px; line-height:1.7;">
+          If the button does not work, copy and paste this link into your browser:
+        </p>
+        <p style="margin:0; word-break:break-word; font-size:14px; line-height:1.7; color:#5e6c6a;">{{ invite_url }}</p>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

@@ -424,10 +424,10 @@ Signed in
 <div class="nav-stack" aria-label="Workspace navigation">
 <div class="nav-group-label">Navigate</div>
 <div class="nav-menu-group">
-{% if active_cafe and not me_is_admin and not me_membership %}
-<a class="nav-chip {% if request.endpoint == 'card' %}active{% endif %}"
-href="{{ url_for('card') }}"
-aria-current="{% if request.endpoint == 'card' %}page{% endif %}">
+{% if active_cafe %}
+<a class="nav-chip {% if request.endpoint in ['card', 'card_history', 'open_card'] %}active{% endif %}"
+href="{{ url_for('open_card', cafe_id=active_cafe.id) }}"
+aria-current="{% if request.endpoint in ['card', 'card_history'] %}page{% endif %}">
 My Card
 </a>
 {% endif %}
