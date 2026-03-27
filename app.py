@@ -107,6 +107,10 @@ def cafe_is_available(cafe: Cafe | None) -> bool:
     return bool(cafe and cafe.is_active and not getattr(cafe, "is_archived", False))
 
 
+def is_protected_super_admin(user: User | None) -> bool:
+    return bool(user and user.email == "admin@local" and user.is_global_admin)
+
+
 def is_manager_role(role: str | None) -> bool:
     return role in ("owner", "manager")
 
@@ -3667,6 +3671,10 @@ def create_app():
             abort(404)
 
         action = (request.form.get("action") or "").strip()
+
+        if is_protected_super_admin(u) and action in {"delete_user", "toggle_active", "set_global_admin"}:
+            flash("The protected super admin account cannot be deleted, suspended, or demoted.", "danger")
+            return redirect(url_for("admin_user_manage", user_id=user_id))
 
         if action == "delete_user":
             actor = current_user()

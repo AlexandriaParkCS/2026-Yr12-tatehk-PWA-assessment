@@ -32,6 +32,9 @@
         {% if target.is_global_admin %}
           <span class="badge bg-dark px-3 py-2">Global Admin</span>
         {% endif %}
+        {% if target.email == 'admin@local' and target.is_global_admin %}
+          <span class="badge text-bg-light border px-3 py-2">Protected Super Admin</span>
+        {% endif %}
       </div>
     </div>
   </div>
@@ -46,7 +49,7 @@
         <form method="post" action="{{ url_for('admin_user_update', user_id=target.id) }}" class="mb-2">
           <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
           <input type="hidden" name="action" value="delete_user">
-          <button class="btn btn-danger btn-sm w-100" type="submit" onclick="return confirm('Delete {{ target.username }} permanently? This cannot be undone.');">
+          <button class="btn btn-danger btn-sm w-100" type="submit" onclick="return confirm('Delete {{ target.username }} permanently? This cannot be undone.');" {% if target.email == 'admin@local' and target.is_global_admin %}disabled{% endif %}>
             Delete Account
           </button>
         </form>
@@ -54,7 +57,7 @@
         <form method="post" action="{{ url_for('admin_user_update', user_id=target.id) }}" class="mb-2">
           <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
           <input type="hidden" name="action" value="toggle_active">
-          <button class="btn btn-warning btn-sm w-100" type="submit">
+          <button class="btn btn-warning btn-sm w-100" type="submit" {% if target.email == 'admin@local' and target.is_global_admin %}disabled{% endif %}>
             {% if target.is_active %}Suspend User{% else %}Reactivate User{% endif %}
           </button>
         </form>
@@ -75,10 +78,13 @@
           <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
           <input type="hidden" name="action" value="set_global_admin">
           <input type="hidden" name="value" value="{{ 'false' if target.is_global_admin else 'true' }}">
-          <button class="btn btn-dark btn-sm w-100" type="submit">
+          <button class="btn btn-dark btn-sm w-100" type="submit" {% if target.email == 'admin@local' and target.is_global_admin %}disabled{% endif %}>
             {% if target.is_global_admin %}Remove Global Admin{% else %}Make Global Admin{% endif %}
           </button>
         </form>
+        {% if target.email == 'admin@local' and target.is_global_admin %}
+          <div class="text-muted small mt-2">This seeded super admin account is protected from deletion, suspension, and demotion.</div>
+        {% endif %}
       </div>
     </div>
   </div>
