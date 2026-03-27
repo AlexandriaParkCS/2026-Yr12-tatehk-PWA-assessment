@@ -3518,6 +3518,16 @@ def create_app():
             flash(f"Reopened {cafe.name}.", "success")
             return redirect(url_for("admin_cafes"))
 
+        if action == "delete":
+            if not cafe.is_archived:
+                flash("Only archived cafes can be deleted.", "danger")
+                return redirect(url_for("admin_cafes"))
+            cafe_name = cafe.name
+            db.session.delete(cafe)
+            db.session.commit()
+            flash(f"Deleted {cafe_name}.", "success")
+            return redirect(url_for("admin_cafes"))
+
         if action == "set_owner":
             member_id = (request.form.get("owner_member_id") or "").strip()
             if not member_id.isdigit():
@@ -3657,6 +3667,22 @@ def create_app():
             abort(404)
 
         action = (request.form.get("action") or "").strip()
+
+        if action == "delete_user":
+            actor = current_user()
+            if actor and actor.id == u.id:
+                flash("You cannot delete your own account.", "danger")
+                return redirect(url_for("admin_user_manage", user_id=user_id))
+            owner_membership = CafeMember.query.filter_by(user_id=u.id, role="owner", is_active=True).first()
+            if owner_membership:
+                owner_cafe = db.session.get(Cafe, owner_membership.cafe_id)
+                cafe_name = owner_cafe.name if owner_cafe else "that cafe"
+                flash(f"Transfer cafe owner role for {cafe_name} before deleting this account.", "danger")
+                return redirect(url_for("admin_user_manage", user_id=user_id))
+            db.session.delete(u)
+            db.session.commit()
+            flash("User account deleted.", "success")
+            return redirect(url_for("admin_users"))
 
         if action == "toggle_active":
             u.is_active = not u.is_active

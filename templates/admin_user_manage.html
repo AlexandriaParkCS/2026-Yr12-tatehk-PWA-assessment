@@ -1,31 +1,39 @@
 {% extends "base.html" %}
 {% block content %}
 
-<div class="d-flex justify-content-between align-items-start flex-wrap gap-3 mb-4">
-  <div>
-    <h1 class="h4 mb-1">Manage User: {{ target.username }}</h1>
-    <p class="text-muted mb-0">{{ target.email }}</p>
-    {% if target.pending_email %}
-      <p class="text-muted small mb-0">Pending email change: {{ target.pending_email }}</p>
-    {% endif %}
-  </div>
-  <div class="d-flex flex-wrap gap-2">
-    {% if target.is_active %}
-      <span class="badge bg-success">Active</span>
-    {% else %}
-      <span class="badge bg-danger">Suspended</span>
-    {% endif %}
-    {% if not target.requires_email_verification %}
-      <span class="badge bg-success">Verified</span>
-    {% else %}
-      <span class="badge bg-warning text-dark">Unverified</span>
-    {% endif %}
-    {% if target.requires_password_setup %}
-      <span class="badge bg-info text-dark">Pending Setup</span>
-    {% endif %}
-    {% if target.is_global_admin %}
-      <span class="badge bg-dark">Global Admin</span>
-    {% endif %}
+<div class="card shadow-sm border-0 mb-4">
+  <div class="card-body p-4">
+    <div class="d-flex flex-column gap-3">
+      <div class="d-flex justify-content-between align-items-start flex-wrap gap-3">
+        <div>
+          <h1 class="h4 mb-1">Manage User: {{ target.username }}</h1>
+          <p class="text-muted mb-0">{{ target.email }}</p>
+          {% if target.pending_email %}
+            <p class="text-muted small mb-0">Pending email change: {{ target.pending_email }}</p>
+          {% endif %}
+        </div>
+        <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('admin_users') }}">Back to Users</a>
+      </div>
+
+      <div class="d-flex justify-content-center flex-wrap gap-2">
+        {% if target.is_active %}
+          <span class="badge bg-success px-3 py-2">Active</span>
+        {% else %}
+          <span class="badge bg-danger px-3 py-2">Suspended</span>
+        {% endif %}
+        {% if not target.requires_email_verification %}
+          <span class="badge bg-success px-3 py-2">Verified</span>
+        {% else %}
+          <span class="badge bg-warning text-dark px-3 py-2">Unverified</span>
+        {% endif %}
+        {% if target.requires_password_setup %}
+          <span class="badge bg-info text-dark px-3 py-2">Pending Setup</span>
+        {% endif %}
+        {% if target.is_global_admin %}
+          <span class="badge bg-dark px-3 py-2">Global Admin</span>
+        {% endif %}
+      </div>
+    </div>
   </div>
 </div>
 
@@ -34,6 +42,14 @@
     <div class="card shadow-sm border-0">
       <div class="card-body p-4">
         <h2 class="h6 mb-3">Account Controls</h2>
+
+        <form method="post" action="{{ url_for('admin_user_update', user_id=target.id) }}" class="mb-2">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <input type="hidden" name="action" value="delete_user">
+          <button class="btn btn-danger btn-sm w-100" type="submit" onclick="return confirm('Delete {{ target.username }} permanently? This cannot be undone.');">
+            Delete Account
+          </button>
+        </form>
 
         <form method="post" action="{{ url_for('admin_user_update', user_id=target.id) }}" class="mb-2">
           <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
@@ -84,7 +100,7 @@
                   <div class="d-flex flex-wrap gap-2">
                     <span class="badge {% if m.is_active %}bg-success{% else %}bg-secondary{% endif %}">{{ 'Active' if m.is_active else 'Inactive' }}</span>
                     <span class="badge {% if m.role == 'owner' %}bg-dark{% elif m.role == 'manager' %}bg-primary{% else %}text-bg-light border{% endif %}">
-                      {{ m.role|title }}
+                      {% if m.role == 'owner' %}Cafe Owner{% else %}{{ m.role|title }}{% endif %}
                     </span>
                   </div>
                 </div>
@@ -114,7 +130,7 @@
                   </form>
                 </div>
                 {% if m.role == 'owner' %}
-                  <div class="text-muted small mt-2">Transfer the owner role before removing this membership.</div>
+                  <div class="text-muted small mt-2">Transfer the owner role before removing or deleting this account.</div>
                 {% endif %}
               </div>
             {% endfor %}

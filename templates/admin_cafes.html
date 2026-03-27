@@ -118,6 +118,13 @@
                       <input type="hidden" name="action" value="reopen">
                       <button class="btn btn-success btn-sm w-100" type="submit">Reopen Cafe</button>
                     </form>
+                    <form method="post" action="{{ url_for('admin_cafe_update', cafe_id=cafe.id) }}">
+                      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                      <input type="hidden" name="action" value="delete">
+                      <button class="btn btn-danger btn-sm w-100" type="submit" onclick="return confirm('Delete {{ cafe.name }} permanently? This cannot be undone.');">
+                        Delete Cafe
+                      </button>
+                    </form>
                   {% else %}
                     {% if cafe.is_active %}
                       <form method="post" action="{{ url_for('admin_cafe_update', cafe_id=cafe.id) }}">
