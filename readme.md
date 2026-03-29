@@ -30,7 +30,7 @@ The app creates its database tables automatically and includes lightweight SQLit
 
 ## Important Accounts
 
-- the seeded global admin account is `admin@local`
+- the seeded global admin account is `admin@local` and Password is `ChangeMe123!`
 - the protected super-admin account cannot be deleted, suspended, or demoted
 
 ## Main Areas
